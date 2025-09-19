@@ -4,21 +4,25 @@
 #include <array>
 #include <cmath>
 #include <cctype>
+#include <random>
 #include <string>
 #include <vector>
+#include <cstdlib>
 
 namespace {
-constexpr int LOGICAL_WIDTH  = 448;
-constexpr int LOGICAL_HEIGHT = 336;
-constexpr int WINDOW_SCALE   = 3;
+constexpr int LOGICAL_WIDTH  = 640;
+constexpr int LOGICAL_HEIGHT = 384;
+constexpr int DEFAULT_WINDOW_SCALE = 2;
 
 constexpr float DEFAULT_LAUNCH_SPEED   = 160.0f;
 constexpr float MIN_LAUNCH_SPEED       = 90.0f;
 constexpr float MAX_LAUNCH_SPEED       = 260.0f;
 constexpr float POWER_ADJUST_RATE      = 110.0f;
-constexpr float ROCKET_SPEED_FACTOR    = 0.75f;
-constexpr int PROJECTILE_DAMAGE_SHELL  = 20;
-constexpr int PROJECTILE_DAMAGE_ROCKET = 40;
+
+constexpr int DAMAGE_MORTAR            = 24;
+constexpr int DAMAGE_CLUSTER           = 16;
+constexpr int DAMAGE_CLUSTER_SHARD     = 12;
+constexpr int DAMAGE_NAPALM_DIRECT     = 18;
 constexpr int TANK_HP = 100;
 constexpr float RELOAD_TIME = 0.45f;
 constexpr float GRAVITY = 120.0f;
@@ -29,10 +33,10 @@ constexpr float PI = 3.14159265f;
 
 constexpr float TERRAIN_BASELINE = LOGICAL_HEIGHT - 70.0f;
 
-constexpr float TANK_COLLISION_WIDTH = 12.5f;
-constexpr float TANK_COLLISION_HEIGHT = 6.5f;
+constexpr float TANK_COLLISION_WIDTH = 9.0f;
+constexpr float TANK_COLLISION_HEIGHT = 5.0f;
 
-constexpr float TANK_SCALE = 0.35f;
+constexpr float TANK_SCALE = 0.28f;
 
 constexpr float HULL_TEXTURE_WIDTH = 72.0f;
 constexpr float HULL_TEXTURE_HEIGHT = 28.0f;
@@ -51,14 +55,56 @@ constexpr float TURRET_PIVOT_Y = 16.0f * TANK_SCALE;
 constexpr float TURRET_PIVOT_WORLD_OFFSET_Y = -1.4f;
 constexpr float MUZZLE_LENGTH = 32.0f * TANK_SCALE;
 
-constexpr float SHELL_RADIUS = 3.0f;
-constexpr float ROCKET_RADIUS = 4.0f;
+constexpr float RADIUS_MORTAR = 3.2f;
+constexpr float RADIUS_CLUSTER = 3.0f;
+constexpr float RADIUS_CLUSTER_SHARD = 2.2f;
+constexpr float RADIUS_NAPALM = 3.8f;
+
+constexpr float CLUSTER_SPLIT_TIME = 0.45f;
+constexpr float CLUSTER_SPREAD = 0.22f;
+
+constexpr float NAPALM_BURN_DURATION = 1.2f;
+constexpr float NAPALM_EROSION_RATE = 32.0f;
 constexpr float EXPLOSION_DURATION = 0.45f;
 constexpr float TANK_EXPLOSION_DURATION = 1.2f;
 
 constexpr int GLYPH_WIDTH = 6;
 constexpr int GLYPH_HEIGHT = 7;
 constexpr int DEFAULT_GLYPH_PIXEL = 3;
+
+enum class ProjectileKind { Mortar, Cluster, ClusterShard, Napalm };
+
+enum class SceneryKind { Tower };
+
+std::mt19937& rng() {
+    static std::mt19937 engine{ std::random_device{}() };
+    return engine;
+}
+
+float randomFloat(float min, float max) {
+    std::uniform_real_distribution<float> dist(min, max);
+    return dist(rng());
+}
+
+ProjectileKind nextAmmoType(ProjectileKind current) {
+    switch (current) {
+        case ProjectileKind::Mortar: return ProjectileKind::Cluster;
+        case ProjectileKind::Cluster: return ProjectileKind::Napalm;
+        case ProjectileKind::Napalm: return ProjectileKind::Mortar;
+        case ProjectileKind::ClusterShard: return ProjectileKind::Mortar;
+    }
+    return ProjectileKind::Mortar;
+}
+
+const char* ammoDisplayName(ProjectileKind kind) {
+    switch (kind) {
+        case ProjectileKind::Mortar: return "Mortar";
+        case ProjectileKind::Cluster: return "Cluster";
+        case ProjectileKind::Napalm: return "Napalm";
+        case ProjectileKind::ClusterShard: return "Cluster";
+    }
+    return "Mortar";
+}
 
 struct Assets {
     SDL_Texture* hull{};
@@ -182,16 +228,16 @@ bool loadAssets(SDL_Renderer* renderer, Assets& assets) {
     return true;
 }
 
-enum class ProjectileKind { Shell, Rocket };
-
 struct Projectile {
     SDL_FPoint position{};
     SDL_FPoint velocity{};
-    float radius{SHELL_RADIUS};
+    float radius{RADIUS_MORTAR};
     ProjectileKind kind{};
     int damage{};
     int owner{};
     bool alive{true};
+    float age{0.0f};
+    bool spawnedChildren{false};
 };
 
 struct Explosion {
@@ -202,12 +248,28 @@ struct Explosion {
     bool isTankExplosion{false};
 };
 
+struct NapalmPatch {
+    SDL_FPoint position{};
+    float radius{28.0f};
+    float currentRadius{0.0f};
+    float timer{NAPALM_BURN_DURATION};
+};
+
+struct SceneryObject {
+    SDL_FRect rect{};
+    SceneryKind kind{};
+    float health{100.0f};
+    float maxHealth{100.0f};
+    bool alive{true};
+};
+
 struct Tank {
     SDL_FRect rect{};
     float turretAngleDeg{45.0f};
     float reloadTimer{0.0f};
     float launchSpeed{DEFAULT_LAUNCH_SPEED};
-    ProjectileKind selected{ProjectileKind::Shell};
+    float verticalVelocity{0.0f};
+    ProjectileKind selected{ProjectileKind::Mortar};
     int hp{TANK_HP};
     SDL_Scancode aimUp{};
     SDL_Scancode aimDown{};
@@ -219,6 +281,7 @@ struct Tank {
     bool facingRight{true};
     bool exploding{false};
     float explosionTimer{0.0f};
+    bool ammoSwitchHeld{false};
 };
 
 struct GameState {
@@ -226,7 +289,10 @@ struct GameState {
     Tank player2{};
     std::vector<Projectile> projectiles{};
     std::vector<Explosion> explosions{};
+    std::vector<NapalmPatch> napalmPatches{};
+    std::vector<SceneryObject> scenery{};
     std::vector<int> terrainHeights{};
+    std::vector<int> terrainSubstrate{};
     bool matchOver{false};
     int winner{0};
     float resetTimer{2.0f};
@@ -245,50 +311,64 @@ float terrainHeightAt(const std::vector<int>& heights, float x) {
     return static_cast<float>(heights[x0]) + (static_cast<float>(heights[x1]) - static_cast<float>(heights[x0])) * t;
 }
 
-void generateTerrain(std::vector<int>& heights) {
-    heights.resize(LOGICAL_WIDTH);
+float substrateHeightAt(const std::vector<int>& substrate, float x) {
+    if (substrate.empty()) return static_cast<float>(LOGICAL_HEIGHT - 1);
+    float clamped = std::clamp(x, 0.0f, static_cast<float>(LOGICAL_WIDTH - 1));
+    int x0 = static_cast<int>(std::floor(clamped));
+    int x1 = std::min(x0 + 1, LOGICAL_WIDTH - 1);
+    float t = clamped - static_cast<float>(x0);
+    return static_cast<float>(substrate[x0]) + (static_cast<float>(substrate[x1]) - static_cast<float>(substrate[x0])) * t;
+}
+
+void generateTerrain(std::vector<int>& surface, std::vector<int>& substrate) {
+    surface.resize(LOGICAL_WIDTH);
+    substrate.resize(LOGICAL_WIDTH);
+
+    const int segments = 10;
+    std::array<float, segments + 1> controls{};
+    const float baseLine = TERRAIN_BASELINE - randomFloat(4.0f, 10.0f);
+    for (int i = 0; i <= segments; ++i) {
+        controls[i] = baseLine + randomFloat(-8.0f, 8.0f);
+    }
+
+    for (int v = 0; v < 2; ++v) {
+        int idx = std::clamp(static_cast<int>(randomFloat(1.0f, static_cast<float>(segments - 1))), 1, segments - 1);
+        controls[idx] += randomFloat(28.0f, 40.0f);
+    }
+    for (int c = 0; c < 2; ++c) {
+        int idx = std::clamp(static_cast<int>(randomFloat(1.0f, static_cast<float>(segments - 1))), 1, segments - 1);
+        controls[idx] -= randomFloat(18.0f, 30.0f);
+    }
+
+    float segmentWidth = static_cast<float>(LOGICAL_WIDTH) / segments;
     for (int x = 0; x < LOGICAL_WIDTH; ++x) {
         float fx = static_cast<float>(x);
-        float base = TERRAIN_BASELINE;
-        base += std::sin(fx * 0.035f) * 14.0f;
-        base += std::sin(fx * 0.11f + 1.2f) * 7.0f;
-        base += std::sin(fx * 0.22f + 2.4f) * 4.0f;
-        heights[x] = static_cast<int>(std::round(base));
+        int seg = std::min(static_cast<int>(fx / segmentWidth), segments - 1);
+        float t = (fx - seg * segmentWidth) / segmentWidth;
+        float start = controls[seg];
+        float end = controls[seg + 1];
+        float base = start + (end - start) * t;
+        base += std::sin(fx * 0.07f + controls[seg] * 0.02f) * 3.0f;
+        base += std::sin(fx * 0.18f + controls[seg + 1] * 0.015f) * 2.0f;
+        surface[x] = static_cast<int>(std::round(base));
     }
 
-    struct Feature { int center; float radius; float magnitude; };
-    const Feature craters[] = {
-        { 90,  26.0f, 18.0f },
-        { 210, 32.0f, 22.0f },
-        { 330, 20.0f, 14.0f }
-    };
-    for (const auto& crater : craters) {
-        for (int x = std::max(0, crater.center - static_cast<int>(crater.radius));
-             x < std::min(LOGICAL_WIDTH, crater.center + static_cast<int>(crater.radius)); ++x) {
-            float dx = static_cast<float>(x - crater.center);
-            float t = std::clamp(std::abs(dx) / crater.radius, 0.0f, 1.0f);
-            float depth = (std::cos(t * PI) * 0.5f + 0.5f) * crater.magnitude;
-            heights[x] += static_cast<int>(std::round(depth));
+    for (int pass = 0; pass < 2; ++pass) {
+        std::vector<int> temp = surface;
+        for (int x = 1; x < LOGICAL_WIDTH - 1; ++x) {
+            temp[x] = static_cast<int>(std::round(surface[x] * 0.6f + surface[x - 1] * 0.2f + surface[x + 1] * 0.2f));
         }
+        surface.swap(temp);
     }
 
-    const Feature berms[] = {
-        { 140, 18.0f, -16.0f },
-        { 255, 22.0f, -20.0f },
-        { 395, 16.0f, -12.0f }
-    };
-    for (const auto& berm : berms) {
-        for (int x = std::max(0, berm.center - static_cast<int>(berm.radius));
-             x < std::min(LOGICAL_WIDTH, berm.center + static_cast<int>(berm.radius)); ++x) {
-            float dx = static_cast<float>(x - berm.center);
-            float t = std::clamp(std::abs(dx) / berm.radius, 0.0f, 1.0f);
-            float lift = (std::cos(t * PI) * 0.5f + 0.5f) * berm.magnitude;
-            heights[x] += static_cast<int>(std::round(lift));
-        }
+    for (int& h : surface) {
+        h = std::clamp(h, LOGICAL_HEIGHT - 118, LOGICAL_HEIGHT - 32);
     }
 
-    for (int& h : heights) {
-        h = std::clamp(h, LOGICAL_HEIGHT - 110, LOGICAL_HEIGHT - 28);
+    for (int x = 0; x < LOGICAL_WIDTH; ++x) {
+        float substrateBase = static_cast<float>(surface[x]) + randomFloat(14.0f, 22.0f);
+        substrate[x] = static_cast<int>(std::round(std::min(substrateBase, static_cast<float>(LOGICAL_HEIGHT - 14))));
+        substrate[x] = std::max(substrate[x], surface[x] + 10);
     }
 }
 
@@ -312,11 +392,30 @@ Projectile spawnProjectile(const Tank& tank) {
     Projectile proj;
     proj.kind = tank.selected;
     proj.owner = tank.id;
-    proj.damage = (proj.kind == ProjectileKind::Shell) ? PROJECTILE_DAMAGE_SHELL : PROJECTILE_DAMAGE_ROCKET;
-    proj.radius = (proj.kind == ProjectileKind::Shell) ? SHELL_RADIUS : ROCKET_RADIUS;
 
-    float baseSpeed = tank.launchSpeed;
-    float speed = (proj.kind == ProjectileKind::Rocket) ? baseSpeed * ROCKET_SPEED_FACTOR : baseSpeed;
+    float speed = tank.launchSpeed;
+    switch (proj.kind) {
+        case ProjectileKind::Mortar:
+            proj.damage = DAMAGE_MORTAR;
+            proj.radius = RADIUS_MORTAR;
+            break;
+        case ProjectileKind::Cluster:
+            proj.damage = DAMAGE_CLUSTER;
+            proj.radius = RADIUS_CLUSTER;
+            speed *= 0.95f;
+            break;
+        case ProjectileKind::Napalm:
+            proj.damage = DAMAGE_NAPALM_DIRECT;
+            proj.radius = RADIUS_NAPALM;
+            speed *= 1.3f;
+            break;
+        case ProjectileKind::ClusterShard:
+            proj.damage = DAMAGE_CLUSTER_SHARD;
+            proj.radius = RADIUS_CLUSTER_SHARD;
+            speed *= 0.9f;
+            proj.spawnedChildren = true;
+            break;
+    }
 
     float angleDeg = turretWorldAngleDeg(tank);
     float angleRad = angleDeg * DEG2RAD;
@@ -349,7 +448,12 @@ void updateTank(Tank& tank, const Uint8* keys, float dt, std::vector<Projectile>
     tank.launchSpeed = std::clamp(tank.launchSpeed, MIN_LAUNCH_SPEED, MAX_LAUNCH_SPEED);
 
     if (keys[tank.nextAmmo]) {
-        tank.selected = (tank.selected == ProjectileKind::Shell) ? ProjectileKind::Rocket : ProjectileKind::Shell;
+        if (!tank.ammoSwitchHeld) {
+            tank.selected = nextAmmoType(tank.selected);
+            tank.ammoSwitchHeld = true;
+        }
+    } else {
+        tank.ammoSwitchHeld = false;
     }
 
     if (keys[tank.fire] && tank.reloadTimer <= 0.0f) {
@@ -377,9 +481,236 @@ SDL_FRect tankHitbox(const Tank& tank) {
     return hit;
 }
 
+void deformTerrain(std::vector<int>& terrain, float centerX, float radius, float depth);
+
+float sceneryMaxHealth(SceneryKind kind) {
+    (void)kind;
+    return 120.0f;
+}
+
+void erodeTerrainLayers(GameState& state, float centerX, float radius, float depth);
+
+void destroySceneryObject(GameState& state, SceneryObject& object, const SDL_FPoint& impact) {
+    if (!object.alive) return;
+    object.alive = false;
+    float radius = 26.0f;
+    float depth = 14.0f;
+    erodeTerrainLayers(state, object.rect.x + object.rect.w * 0.5f, radius, depth);
+    state.explosions.push_back({ impact, 0.5f, 0.5f, radius + 6.0f, false });
+}
+
+void damageSceneryObject(GameState& state, SceneryObject& object, float amount, const SDL_FPoint& impact) {
+    if (!object.alive) return;
+    object.health -= amount;
+    float scarDepth = std::max(2.0f, amount * 0.15f);
+    erodeTerrainLayers(state, impact.x, std::max(object.rect.w * 0.25f, 10.0f), scarDepth);
+    if (object.health <= 0.0f) {
+        destroySceneryObject(state, object, impact);
+    }
+}
+
+void erodeTerrainLayers(GameState& state, float centerX, float radius, float depth) {
+    deformTerrain(state.terrainHeights, centerX, radius, depth);
+    deformTerrain(state.terrainSubstrate, centerX, radius * 0.7f, depth * 0.35f);
+    int start = std::max(0, static_cast<int>(std::floor(centerX - radius - 2.0f)));
+    int end = std::min(LOGICAL_WIDTH - 1, static_cast<int>(std::ceil(centerX + radius + 2.0f)));
+    for (int x = start; x <= end; ++x) {
+        if (x >= 0 && x < static_cast<int>(state.terrainHeights.size()) && x < static_cast<int>(state.terrainSubstrate.size())) {
+            state.terrainHeights[x] = std::min(state.terrainHeights[x], state.terrainSubstrate[x] - 2);
+        }
+    }
+}
+
+void carveCircularCrater(GameState& state, float centerX, float radius, float depth) {
+    if (radius <= 0.0f || depth <= 0.0f) return;
+    int start = std::max(0, static_cast<int>(std::floor(centerX - radius - 2.0f)));
+    int end = std::min(LOGICAL_WIDTH - 1, static_cast<int>(std::ceil(centerX + radius + 2.0f)));
+    float radiusSq = radius * radius;
+    for (int x = start; x <= end; ++x) {
+        float dx = static_cast<float>(x) - centerX;
+        float distSq = dx * dx;
+        if (distSq > radiusSq) continue;
+        float normalized = distSq / radiusSq;
+        float drop = depth * std::sqrt(std::max(0.0f, 1.0f - normalized));
+        if (x < static_cast<int>(state.terrainHeights.size())) {
+            state.terrainHeights[x] = std::min(LOGICAL_HEIGHT - 8, state.terrainHeights[x] + static_cast<int>(std::round(drop)));
+        }
+        if (x < static_cast<int>(state.terrainSubstrate.size())) {
+            state.terrainSubstrate[x] = std::min(LOGICAL_HEIGHT - 6, state.terrainSubstrate[x] + static_cast<int>(std::round(drop * 0.35f)));
+            state.terrainSubstrate[x] = std::max(state.terrainSubstrate[x], state.terrainHeights[x] + 8);
+        }
+    }
+}
+
+float clampPosition(float value, float halfWidth) {
+    return std::clamp(value, halfWidth + 4.0f, static_cast<float>(LOGICAL_WIDTH) - halfWidth - 4.0f);
+}
+
+void addSceneryObject(GameState& state, SceneryKind kind, float centerX) {
+    float width = randomFloat(20.0f, 28.0f);
+    float height = randomFloat(78.0f, 108.0f);
+
+    float halfWidth = width * 0.5f;
+    float clampedCenter = clampPosition(centerX, halfWidth);
+    float left = clampedCenter - halfWidth;
+    float groundLeft = terrainHeightAt(state.terrainHeights, left);
+    float groundRight = terrainHeightAt(state.terrainHeights, left + width);
+    float support = std::min(groundLeft, groundRight);
+    float top = support - height;
+
+    SceneryObject object;
+    object.rect = SDL_FRect{ left, top, width, height };
+    object.kind = kind;
+    object.maxHealth = sceneryMaxHealth(kind);
+    object.health = object.maxHealth;
+    object.alive = true;
+    state.scenery.push_back(object);
+}
+
+void generateSceneryObjects(GameState& state) {
+    state.scenery.clear();
+    constexpr float MIN_DISTANCE_BETWEEN_TOWERS = 110.0f;
+    constexpr float TANK_CLEAR_ZONE = 110.0f;
+    std::vector<float> selected;
+    std::array<float, 2> tankCenters{
+        56.0f + TANK_COLLISION_WIDTH * 0.5f,
+        static_cast<float>(LOGICAL_WIDTH) - 72.0f + TANK_COLLISION_WIDTH * 0.5f
+    };
+
+    auto isValid = [&](float candidate) {
+        for (float center : tankCenters) {
+            if (std::abs(candidate - center) < TANK_CLEAR_ZONE) return false;
+        }
+        for (float existing : selected) {
+            if (std::abs(candidate - existing) < MIN_DISTANCE_BETWEEN_TOWERS) return false;
+        }
+        return true;
+    };
+
+    const int desiredTowers = 3;
+    for (int i = 0; i < desiredTowers; ++i) {
+        bool placed = false;
+        for (int attempt = 0; attempt < 20 && !placed; ++attempt) {
+            float candidate = randomFloat(80.0f, static_cast<float>(LOGICAL_WIDTH) - 80.0f);
+            if (!isValid(candidate)) continue;
+            selected.push_back(candidate);
+            placed = true;
+        }
+    }
+
+    for (float center : selected) {
+        addSceneryObject(state, SceneryKind::Tower, center);
+    }
+}
+
+void deformTerrain(std::vector<int>& terrain, float centerX, float radius, float depth) {
+    if (terrain.empty()) return;
+    int start = std::max(0, static_cast<int>(std::floor(centerX - radius - 2.0f)));
+    int end = std::min(LOGICAL_WIDTH - 1, static_cast<int>(std::ceil(centerX + radius + 2.0f)));
+    for (int x = start; x <= end; ++x) {
+        float dx = static_cast<float>(x) - centerX;
+        float dist = std::abs(dx);
+        if (dist > radius) continue;
+        float t = dist / radius;
+        float falloff = (1.0f - t * t);
+        float delta = depth * falloff;
+        terrain[x] = std::min(LOGICAL_HEIGHT - 8, terrain[x] + static_cast<int>(std::round(delta)));
+    }
+    for (int& h : terrain) {
+        h = std::clamp(h, LOGICAL_HEIGHT - 140, LOGICAL_HEIGHT - 20);
+    }
+}
+
+void applyGravityToTank(Tank& tank, const std::vector<int>& terrain, float dt) {
+    constexpr float GRAVITY_ACC = 260.0f;
+    float leftSample = terrainHeightAt(terrain, tank.rect.x + tank.rect.w * 0.25f);
+    float rightSample = terrainHeightAt(terrain, tank.rect.x + tank.rect.w * 0.75f);
+    float support = std::min(leftSample, rightSample);
+    float bottom = tank.rect.y + tank.rect.h;
+
+    float gap = support - bottom;
+    if (gap > 0.5f) {
+        tank.verticalVelocity += GRAVITY_ACC * dt;
+        tank.rect.y += tank.verticalVelocity * dt;
+    } else if (gap < -0.5f) {
+        tank.rect.y = support - tank.rect.h - 0.5f;
+        tank.verticalVelocity = 0.0f;
+    } else {
+        tank.rect.y = support - tank.rect.h;
+        tank.verticalVelocity = 0.0f;
+    }
+
+    float newBottom = tank.rect.y + tank.rect.h;
+    if (newBottom >= support - 0.2f && tank.verticalVelocity > 0.0f && gap <= 0.5f) {
+        tank.rect.y = support - tank.rect.h;
+        tank.verticalVelocity = 0.0f;
+    }
+
+    if (tank.rect.y + tank.rect.h > LOGICAL_HEIGHT - 2) {
+        tank.rect.y = LOGICAL_HEIGHT - 2 - tank.rect.h;
+        tank.verticalVelocity = 0.0f;
+    }
+}
+
 void updateProjectiles(GameState& state, float dt) {
+    std::vector<Projectile> spawned;
     for (auto& proj : state.projectiles) {
         if (!proj.alive) continue;
+
+        proj.age += dt;
+
+        if (proj.kind == ProjectileKind::Cluster && !proj.spawnedChildren && proj.age >= CLUSTER_SPLIT_TIME) {
+            float speedMag = std::sqrt(proj.velocity.x * proj.velocity.x + proj.velocity.y * proj.velocity.y);
+            float baseAngle = std::atan2(proj.velocity.y, proj.velocity.x);
+            for (int i = -1; i <= 1; ++i) {
+                float spread = CLUSTER_SPREAD * static_cast<float>(i);
+                float newAngle = baseAngle + spread;
+                float newSpeed = speedMag * randomFloat(0.88f, 1.02f);
+                Projectile shard;
+                shard.kind = ProjectileKind::ClusterShard;
+                shard.owner = proj.owner;
+                shard.damage = DAMAGE_CLUSTER_SHARD;
+                shard.radius = RADIUS_CLUSTER_SHARD;
+                shard.position = proj.position;
+                shard.velocity.x = std::cos(newAngle) * newSpeed;
+                shard.velocity.y = std::sin(newAngle) * newSpeed;
+                shard.spawnedChildren = true;
+                spawned.push_back(shard);
+            }
+            state.explosions.push_back({proj.position, 0.25f, 0.25f, 14.0f, false});
+            proj.alive = false;
+            continue;
+        }
+
+        bool hitScenery = false;
+        for (auto& object : state.scenery) {
+            if (!object.alive) continue;
+            if (circleIntersectsRect(proj.position, proj.radius, object.rect)) {
+                float dmg = static_cast<float>(proj.damage);
+                if (proj.kind == ProjectileKind::Napalm) {
+                    dmg *= 0.7f;
+                }
+                damageSceneryObject(state, object, dmg, proj.position);
+                state.explosions.push_back({proj.position, EXPLOSION_DURATION * 0.8f, EXPLOSION_DURATION * 0.8f, 20.0f, false});
+                if (proj.kind == ProjectileKind::Napalm) {
+                    float napalmRadius = 32.0f;
+                    float napalmDepth = 11.0f;
+                    carveCircularCrater(state, proj.position.x, napalmRadius, napalmDepth);
+                    NapalmPatch patch;
+                    patch.position = proj.position;
+                    patch.radius = napalmRadius;
+                    patch.currentRadius = 0.0f;
+                    patch.timer = NAPALM_BURN_DURATION;
+                    state.napalmPatches.push_back(patch);
+                }
+                proj.alive = false;
+                hitScenery = true;
+                break;
+            }
+        }
+        if (hitScenery) {
+            continue;
+        }
 
         proj.velocity.y += GRAVITY * dt;
         proj.position.x += proj.velocity.x * dt;
@@ -393,7 +724,30 @@ void updateProjectiles(GameState& state, float dt) {
 
         float terrainY = terrainHeightAt(state.terrainHeights, proj.position.x);
         if (proj.position.y + proj.radius >= terrainY) {
-            state.explosions.push_back({proj.position, EXPLOSION_DURATION, EXPLOSION_DURATION, 22.0f, false});
+            switch (proj.kind) {
+                case ProjectileKind::Mortar:
+                    carveCircularCrater(state, proj.position.x, 24.0f, 14.0f);
+                    break;
+                case ProjectileKind::Cluster:
+                    erodeTerrainLayers(state, proj.position.x, 18.0f, 8.0f);
+                    break;
+                case ProjectileKind::ClusterShard:
+                    erodeTerrainLayers(state, proj.position.x, 12.0f, 6.0f);
+                    break;
+                case ProjectileKind::Napalm: {
+                    float napalmRadius = 34.0f;
+                    float napalmDepth = 12.0f;
+                    carveCircularCrater(state, proj.position.x, napalmRadius, napalmDepth);
+                    NapalmPatch patch;
+                    patch.position = proj.position;
+                    patch.radius = napalmRadius;
+                    patch.currentRadius = 0.0f;
+                    patch.timer = NAPALM_BURN_DURATION;
+                    state.napalmPatches.push_back(patch);
+                    break;
+                }
+            }
+            state.explosions.push_back({proj.position, EXPLOSION_DURATION, EXPLOSION_DURATION, 24.0f, proj.kind == ProjectileKind::Napalm});
             proj.alive = false;
             continue;
         }
@@ -406,6 +760,27 @@ void updateProjectiles(GameState& state, float dt) {
                 if (circleIntersectsRect(proj.position, proj.radius, hitbox)) {
                     target->hp -= proj.damage;
                     state.explosions.push_back({proj.position, EXPLOSION_DURATION, EXPLOSION_DURATION, 26.0f, false});
+                    switch (proj.kind) {
+                        case ProjectileKind::Mortar:
+                            carveCircularCrater(state, proj.position.x, 22.0f, 12.0f);
+                            break;
+                        case ProjectileKind::Cluster:
+                        case ProjectileKind::ClusterShard:
+                            erodeTerrainLayers(state, proj.position.x, 16.0f, 8.0f);
+                            break;
+                        case ProjectileKind::Napalm: {
+                            float napalmRadius = 32.0f;
+                            float napalmDepth = 11.0f;
+                            carveCircularCrater(state, proj.position.x, napalmRadius, napalmDepth);
+                            NapalmPatch patch;
+                            patch.position = proj.position;
+                            patch.radius = napalmRadius;
+                            patch.currentRadius = 0.0f;
+                            patch.timer = NAPALM_BURN_DURATION;
+                            state.napalmPatches.push_back(patch);
+                            break;
+                        }
+                    }
                     proj.alive = false;
                     if (target->hp <= 0) {
                         target->exploding = true;
@@ -417,6 +792,7 @@ void updateProjectiles(GameState& state, float dt) {
                             48.0f,
                             true
                         });
+                        erodeTerrainLayers(state, target->rect.x + target->rect.w * 0.5f, 36.0f, 18.0f);
                         state.matchOver = true;
                         state.winner = (target->id == 1) ? 2 : 1;
                         state.resetTimer = 3.0f;
@@ -431,6 +807,10 @@ void updateProjectiles(GameState& state, float dt) {
         std::remove_if(state.projectiles.begin(), state.projectiles.end(),
                        [](const Projectile& p) { return !p.alive; }),
         state.projectiles.end());
+
+    if (!spawned.empty()) {
+        state.projectiles.insert(state.projectiles.end(), spawned.begin(), spawned.end());
+    }
 }
 
 void drawRect(SDL_Renderer* renderer, SDL_FRect rect, SDL_Color color) {
@@ -457,14 +837,17 @@ using GlyphRows = std::array<uint8_t, GLYPH_HEIGHT>;
 
 constexpr GlyphRows GLYPH_SPACE{ 0,0,0,0,0,0,0 };
 constexpr GlyphRows GLYPH_A{ 0b011110, 0b100001, 0b100001, 0b111111, 0b100001, 0b100001, 0b100001 };
+constexpr GlyphRows GLYPH_C{ 0b011110, 0b100001, 0b100000, 0b100000, 0b100000, 0b100001, 0b011110 };
 constexpr GlyphRows GLYPH_E{ 0b111111, 0b100000, 0b100000, 0b111110, 0b100000, 0b100000, 0b111111 };
 constexpr GlyphRows GLYPH_G{ 0b011110, 0b100001, 0b100000, 0b101111, 0b100001, 0b100001, 0b011110 };
 constexpr GlyphRows GLYPH_M{ 0b100001, 0b110011, 0b101101, 0b100001, 0b100001, 0b100001, 0b100001 };
 constexpr GlyphRows GLYPH_O{ 0b011110, 0b100001, 0b100001, 0b100001, 0b100001, 0b100001, 0b011110 };
 constexpr GlyphRows GLYPH_V{ 0b100001, 0b100001, 0b100001, 0b100001, 0b010010, 0b010010, 0b001100 };
 constexpr GlyphRows GLYPH_R{ 0b111110, 0b100001, 0b100001, 0b111110, 0b101000, 0b100100, 0b100011 };
+constexpr GlyphRows GLYPH_T{ 0b111111, 0b001100, 0b001100, 0b001100, 0b001100, 0b001100, 0b001100 };
 constexpr GlyphRows GLYPH_P{ 0b111110, 0b100001, 0b100001, 0b111110, 0b100000, 0b100000, 0b100000 };
 constexpr GlyphRows GLYPH_L{ 0b100000, 0b100000, 0b100000, 0b100000, 0b100000, 0b100000, 0b111111 };
+constexpr GlyphRows GLYPH_U{ 0b100001, 0b100001, 0b100001, 0b100001, 0b100001, 0b100001, 0b011110 };
 constexpr GlyphRows GLYPH_Y{ 0b100001, 0b010010, 0b010010, 0b001100, 0b001100, 0b001100, 0b001100 };
 constexpr GlyphRows GLYPH_W{ 0b100001, 0b100001, 0b100001, 0b100101, 0b101101, 0b110011, 0b100001 };
 constexpr GlyphRows GLYPH_I{ 0b111111, 0b001100, 0b001100, 0b001100, 0b001100, 0b001100, 0b111111 };
@@ -476,14 +859,17 @@ constexpr GlyphRows GLYPH_TWO{ 0b011110, 0b100001, 0b000001, 0b000110, 0b001100,
 const GlyphRows* glyphFor(char c) {
     switch (c) {
         case 'A': return &GLYPH_A;
+        case 'C': return &GLYPH_C;
         case 'E': return &GLYPH_E;
         case 'G': return &GLYPH_G;
         case 'M': return &GLYPH_M;
         case 'O': return &GLYPH_O;
         case 'V': return &GLYPH_V;
         case 'R': return &GLYPH_R;
+        case 'T': return &GLYPH_T;
         case 'P': return &GLYPH_P;
         case 'L': return &GLYPH_L;
+        case 'U': return &GLYPH_U;
         case 'Y': return &GLYPH_Y;
         case 'W': return &GLYPH_W;
         case 'I': return &GLYPH_I;
@@ -586,66 +972,81 @@ void drawBackground(SDL_Renderer* renderer) {
     }
 }
 
-void drawTerrain(SDL_Renderer* renderer, const std::vector<int>& heights) {
-    SDL_Color base{ 96, 68, 52, 255 };
-    SDL_Color highlight{ 214, 188, 148, 255 };
-    SDL_Color shadow{ 42, 32, 28, 255 };
-    SDL_Color midTone{ 136, 104, 80, 255 };
-    SDL_Color rimLight{ 242, 208, 172, 255 };
+void drawTerrain(SDL_Renderer* renderer, const std::vector<int>& surface, const std::vector<int>& substrate) {
+    SDL_Color bedrock{ 72, 76, 88, 255 };
+    SDL_Color base{ 104, 108, 120, 255 };
+    SDL_Color highlight{ 224, 226, 232, 255 };
+    SDL_Color midTone{ 150, 154, 164, 255 };
+    SDL_Color rimLight{ 242, 244, 248, 255 };
+    SDL_Color striation{ 94, 98, 112, 180 };
 
     for (int x = 0; x < LOGICAL_WIDTH; ++x) {
-        int top = heights[x];
+        int top = surface[x];
+        int sub = substrate.empty() ? std::min(LOGICAL_HEIGHT - 12, top + 14) : std::max(surface[x] + 6, substrate[x]);
+        SDL_SetRenderDrawColor(renderer, bedrock.r, bedrock.g, bedrock.b, 255);
+        SDL_RenderDrawLine(renderer, x, sub, x, LOGICAL_HEIGHT);
+
         SDL_SetRenderDrawColor(renderer, base.r, base.g, base.b, 255);
-        SDL_RenderDrawLine(renderer, x, top, x, LOGICAL_HEIGHT);
+        SDL_RenderDrawLine(renderer, x, top, x, sub);
     }
 
-    SDL_SetRenderDrawColor(renderer, midTone.r, midTone.g, midTone.b, 140);
-    for (int x = 0; x < LOGICAL_WIDTH; x += 4) {
-        int top = heights[x];
-        int scribble = static_cast<int>(std::sin(x * 0.18f) * 3.5f);
-        SDL_RenderDrawLine(renderer, x - 2, top + scribble, x + 6, top + scribble + 3);
+    SDL_SetRenderDrawColor(renderer, striation.r, striation.g, striation.b, striation.a);
+    for (int x = 0; x < LOGICAL_WIDTH; x += 6) {
+        int top = surface[x];
+        SDL_RenderDrawLine(renderer, x - 2, top + 3, x + 4, top + 8);
     }
 
-    SDL_SetRenderDrawColor(renderer, 128, 88, 60, 90);
-    for (int x = 0; x < LOGICAL_WIDTH; x += 3) {
-        int top = heights[x];
+    SDL_SetRenderDrawColor(renderer, midTone.r, midTone.g, midTone.b, 150);
+    for (int x = 0; x < LOGICAL_WIDTH; x += 5) {
+        int top = surface[x];
         SDL_RenderDrawLine(renderer, x, top + 2, x + 1, top + 6);
-    }
-
-    SDL_SetRenderDrawColor(renderer, shadow.r, shadow.g, shadow.b, 160);
-    for (int x = 0; x < LOGICAL_WIDTH; ++x) {
-        if (x == LOGICAL_WIDTH - 1) continue;
-        int current = heights[x];
-        int next = heights[x + 1];
-        if (next > current) {
-            SDL_RenderDrawLine(renderer, x + 1, current - 1, x + 1, next + 2);
-        }
     }
 
     SDL_SetRenderDrawColor(renderer, highlight.r, highlight.g, highlight.b, 210);
     for (int x = 0; x < LOGICAL_WIDTH; ++x) {
-        int top = heights[x];
+        int top = surface[x];
         SDL_RenderDrawPoint(renderer, x, top);
-        if (x % 5 == 0) {
+        if (x % 7 == 0) {
             SDL_RenderDrawPoint(renderer, x, top - 1);
         }
     }
 
-    SDL_SetRenderDrawColor(renderer, rimLight.r, rimLight.g, rimLight.b, 150);
+    SDL_SetRenderDrawColor(renderer, rimLight.r, rimLight.g, rimLight.b, 160);
     for (int x = 1; x < LOGICAL_WIDTH - 1; ++x) {
-        int current = heights[x];
-        int prev = heights[x - 1];
-        int next = heights[x + 1];
+        int current = surface[x];
+        int prev = surface[x - 1];
+        int next = surface[x + 1];
         if (current <= prev && current <= next) {
             SDL_RenderDrawPoint(renderer, x, current - 1);
         }
     }
+}
 
-    SDL_SetRenderDrawColor(renderer, 58, 44, 36, 80);
-    for (int x = 0; x < LOGICAL_WIDTH; x += 12) {
-        int baseY = heights[x] + 4;
-        SDL_RenderDrawLine(renderer, x - 3, baseY, x + 3, baseY + 6);
-        SDL_RenderDrawLine(renderer, x + 3, baseY + 6, x + 6, baseY + 10);
+void drawScenery(SDL_Renderer* renderer, const std::vector<SceneryObject>& objects) {
+    for (const auto& obj : objects) {
+        if (!obj.alive) continue;
+        float healthRatio = obj.maxHealth > 0.0f ? std::clamp(obj.health / obj.maxHealth, 0.0f, 1.0f) : 1.0f;
+        SDL_FRect rect = obj.rect;
+        SDL_Color base = SDL_Color{ static_cast<Uint8>(124 + 32 * healthRatio), static_cast<Uint8>(128 + 26 * healthRatio), static_cast<Uint8>(134 + 24 * healthRatio), 255 };
+        SDL_SetRenderDrawColor(renderer, base.r, base.g, base.b, 255);
+        SDL_RenderFillRectF(renderer, &rect);
+
+        SDL_SetRenderDrawColor(renderer, 92, 92, 104, 255);
+        SDL_RenderDrawLine(renderer, static_cast<int>(rect.x + rect.w * 0.2f), static_cast<int>(rect.y + rect.h * 0.2f), static_cast<int>(rect.x + rect.w * 0.8f), static_cast<int>(rect.y + rect.h * 0.95f));
+        SDL_RenderDrawLine(renderer, static_cast<int>(rect.x + rect.w * 0.8f), static_cast<int>(rect.y + rect.h * 0.2f), static_cast<int>(rect.x + rect.w * 0.2f), static_cast<int>(rect.y + rect.h * 0.95f));
+
+        SDL_FRect platform{ rect.x - rect.w * 0.1f, rect.y - rect.h * 0.08f, rect.w * 1.2f, rect.h * 0.18f };
+        SDL_SetRenderDrawColor(renderer, 84, 68, 60, 255);
+        SDL_RenderFillRectF(renderer, &platform);
+
+        SDL_FRect hut{ rect.x + rect.w * 0.08f, rect.y - rect.h * 0.24f, rect.w * 0.84f, rect.h * 0.25f };
+        SDL_SetRenderDrawColor(renderer, 98, 88, 80, 255);
+        SDL_RenderFillRectF(renderer, &hut);
+        SDL_SetRenderDrawColor(renderer, 150, 152, 160, 255);
+        SDL_Rect window{ static_cast<int>(hut.x + hut.w * 0.2f), static_cast<int>(hut.y + hut.h * 0.35f), static_cast<int>(hut.w * 0.2f), static_cast<int>(hut.h * 0.4f) };
+        SDL_RenderFillRect(renderer, &window);
+        window.x += static_cast<int>(hut.w * 0.4f);
+        SDL_RenderFillRect(renderer, &window);
     }
 }
 
@@ -663,13 +1064,13 @@ void drawTank(SDL_Renderer* renderer, const Tank& tank, const Assets& assets, bo
     float wobble = std::sin(SDL_GetTicks() * 0.0035f + (isPlayerOne ? 0.35f : 2.2f)) * 1.2f;
 
     SDL_SetTextureColorMod(assets.hull,
-        isPlayerOne ? 120 : 180,
-        isPlayerOne ? 150 : 155,
-        isPlayerOne ? 110 : 120);
+        isPlayerOne ? 172 : 140,
+        isPlayerOne ? 172 : 140,
+        isPlayerOne ? 176 : 150);
     SDL_SetTextureColorMod(assets.turret,
-        isPlayerOne ? 130 : 188,
-        isPlayerOne ? 170 : 168,
-        isPlayerOne ? 120 : 138);
+        isPlayerOne ? 200 : 168,
+        isPlayerOne ? 200 : 168,
+        isPlayerOne ? 205 : 176);
 
     SDL_FRect hullDest{
         tank.rect.x - HULL_OFFSET_X + wobble * 0.3f,
@@ -705,14 +1106,35 @@ void drawTank(SDL_Renderer* renderer, const Tank& tank, const Assets& assets, bo
 
 void drawProjectiles(SDL_Renderer* renderer, const std::vector<Projectile>& projectiles) {
     for (const auto& proj : projectiles) {
-        SDL_Color glow = (proj.kind == ProjectileKind::Shell)
-            ? SDL_Color{ 255, 224, 170, 140 }
-            : SDL_Color{ 255, 180, 160, 150 };
-        SDL_Color core = (proj.kind == ProjectileKind::Shell)
-            ? SDL_Color{ 255, 248, 220, 255 }
-            : SDL_Color{ 255, 196, 120, 255 };
-        drawFilledCircle(renderer, proj.position.x, proj.position.y, proj.radius + 1.5f, glow);
+        SDL_Color glow{};
+        SDL_Color core{};
+        float glowExtra = 1.6f;
+        switch (proj.kind) {
+            case ProjectileKind::Mortar:
+                glow = SDL_Color{ 248, 236, 210, 160 };
+                core = SDL_Color{ 255, 252, 240, 255 };
+                break;
+            case ProjectileKind::Cluster:
+                glow = SDL_Color{ 255, 118, 118, 170 };
+                core = SDL_Color{ 255, 178, 178, 255 };
+                break;
+            case ProjectileKind::ClusterShard:
+                glow = SDL_Color{ 255, 90, 90, 170 };
+                core = SDL_Color{ 255, 158, 158, 255 };
+                glowExtra = 1.2f;
+                break;
+            case ProjectileKind::Napalm:
+                glow = SDL_Color{ 255, 152, 64, 210 };
+                core = SDL_Color{ 255, 228, 136, 255 };
+                glowExtra = 2.4f;
+                break;
+        }
+        drawFilledCircle(renderer, proj.position.x, proj.position.y, proj.radius + glowExtra, glow);
         drawFilledCircle(renderer, proj.position.x, proj.position.y, proj.radius, core);
+        if (proj.kind == ProjectileKind::Napalm) {
+            SDL_Color ember{ 255, 108, 32, 160 };
+            drawFilledCircle(renderer, proj.position.x, proj.position.y + proj.radius * 0.35f, proj.radius * 0.65f, ember);
+        }
     }
 }
 
@@ -743,6 +1165,31 @@ void updateExplosions(std::vector<Explosion>& explosions, float dt) {
         explosions.end());
 }
 
+void drawNapalmPatches(SDL_Renderer* renderer, const std::vector<NapalmPatch>& patches) {
+    for (const auto& patch : patches) {
+        float lifeT = std::clamp(patch.timer / NAPALM_BURN_DURATION, 0.0f, 1.0f);
+        float radius = std::max(patch.currentRadius, patch.radius * 0.25f);
+        SDL_Color outer{ 255, 120, 48, static_cast<Uint8>(lifeT * 120.0f) };
+        SDL_Color inner{ 255, 190, 96, static_cast<Uint8>(lifeT * 200.0f) };
+        drawFilledCircle(renderer, patch.position.x, patch.position.y, radius, outer);
+        drawFilledCircle(renderer, patch.position.x, patch.position.y, radius * 0.6f, inner);
+    }
+}
+
+void updateNapalmPatches(GameState& state, float dt) {
+    for (auto& patch : state.napalmPatches) {
+        if (patch.timer <= 0.0f) continue;
+        float growth = (patch.radius / std::max(0.2f, NAPALM_BURN_DURATION)) * dt * 1.4f;
+        patch.currentRadius = std::min(patch.radius, patch.currentRadius + growth);
+        patch.timer -= dt;
+    }
+
+    state.napalmPatches.erase(
+        std::remove_if(state.napalmPatches.begin(), state.napalmPatches.end(),
+                       [](const NapalmPatch& p) { return p.timer <= 0.0f; }),
+        state.napalmPatches.end());
+}
+
 void drawUI(SDL_Renderer* renderer, const GameState& state) {
     SDL_SetRenderDrawColor(renderer, palette(4).r, palette(4).g, palette(4).b, 255);
     SDL_RenderDrawLine(renderer, 12, 24, LOGICAL_WIDTH - 12, 24);
@@ -756,6 +1203,7 @@ void drawUI(SDL_Renderer* renderer, const GameState& state) {
     const std::string p1Label = "PLAYER 1";
     const std::string p2Label = "PLAYER 2";
     constexpr int NAMEPLATE_PIXEL = 1;
+    constexpr int AMMO_PIXEL = NAMEPLATE_PIXEL;
     int labelHeight = GLYPH_HEIGHT * NAMEPLATE_PIXEL;
     int p1LabelW = measureText(p1Label, NAMEPLATE_PIXEL);
     int p2LabelW = measureText(p2Label, NAMEPLATE_PIXEL);
@@ -785,8 +1233,19 @@ void drawUI(SDL_Renderer* renderer, const GameState& state) {
         SDL_RenderDrawRect(renderer, &outline);
     };
 
-    drawPowerBar(state.player1, 20.0f, 28.0f + 10.0f);
-    drawPowerBar(state.player2, LOGICAL_WIDTH - 116.0f, 28.0f + 10.0f);
+    float powerBarY = 28.0f + 10.0f;
+    drawPowerBar(state.player1, 20.0f, powerBarY);
+    drawPowerBar(state.player2, LOGICAL_WIDTH - 116.0f, powerBarY);
+
+    std::string p1Ammo = ammoDisplayName(state.player1.selected);
+    std::string p2Ammo = ammoDisplayName(state.player2.selected);
+    int p1AmmoW = measureText(p1Ammo, AMMO_PIXEL);
+    int p2AmmoW = measureText(p2Ammo, AMMO_PIXEL);
+    int ammoY = static_cast<int>(std::lround(powerBarY + barHeight + 6.0f));
+    int p1AmmoX = static_cast<int>(std::lround(20.0f + (barWidth - p1AmmoW) * 0.5f));
+    int p2AmmoX = static_cast<int>(std::lround(LOGICAL_WIDTH - 116.0f + (barWidth - p2AmmoW) * 0.5f));
+    drawText(renderer, p1AmmoX, ammoY, p1Ammo, labelColor, AMMO_PIXEL);
+    drawText(renderer, p2AmmoX, ammoY, p2Ammo, labelColor, AMMO_PIXEL);
 }
 
 void drawBanner(SDL_Renderer* renderer, int winner) {
@@ -815,20 +1274,26 @@ void positionTankOnTerrain(Tank& tank, const std::vector<int>& terrain) {
     float centerX = tank.rect.x + tank.rect.w * 0.5f;
     float surfaceY = terrainHeightAt(terrain, centerX);
     tank.rect.y = surfaceY - tank.rect.h;
+    tank.verticalVelocity = 0.0f;
 }
 
 void resetMatch(GameState& state) {
+    generateTerrain(state.terrainHeights, state.terrainSubstrate);
+    generateSceneryObjects(state);
     state.projectiles.clear();
     state.explosions.clear();
+    state.napalmPatches.clear();
     state.matchOver = false;
     state.winner = 0;
     state.resetTimer = 2.0f;
 
-    state.player1.rect = makeTankRect(60.0f, 0.0f);
-    state.player2.rect = makeTankRect(LOGICAL_WIDTH - 95.0f, 0.0f);
+    state.player1.rect = makeTankRect(56.0f, 0.0f);
+    state.player2.rect = makeTankRect(LOGICAL_WIDTH - 72.0f, 0.0f);
 
     positionTankOnTerrain(state.player1, state.terrainHeights);
     positionTankOnTerrain(state.player2, state.terrainHeights);
+    state.player1.verticalVelocity = 0.0f;
+    state.player2.verticalVelocity = 0.0f;
 
     state.player1.turretAngleDeg = 45.0f;
     state.player2.turretAngleDeg = 45.0f;
@@ -839,8 +1304,10 @@ void resetMatch(GameState& state) {
     state.player1.launchSpeed = DEFAULT_LAUNCH_SPEED;
     state.player2.launchSpeed = DEFAULT_LAUNCH_SPEED;
 
-    state.player1.selected = ProjectileKind::Shell;
-    state.player2.selected = ProjectileKind::Shell;
+    state.player1.selected = ProjectileKind::Mortar;
+    state.player2.selected = ProjectileKind::Mortar;
+    state.player1.ammoSwitchHeld = false;
+    state.player2.ammoSwitchHeld = false;
 
     state.player1.hp = TANK_HP;
     state.player2.hp = TANK_HP;
@@ -854,19 +1321,42 @@ void resetMatch(GameState& state) {
 } // namespace
 
 int main(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
-
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_EVENTS) != 0) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return 1;
     }
 
+    int windowScale = DEFAULT_WINDOW_SCALE;
+    int windowWidth = LOGICAL_WIDTH * windowScale;
+    int windowHeight = LOGICAL_HEIGHT * windowScale;
+    bool widthSet = false;
+    bool heightSet = false;
+
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--scale" && i + 1 < argc) {
+            windowScale = std::max(1, std::atoi(argv[++i]));
+        } else if (arg == "--window-width" && i + 1 < argc) {
+            windowWidth = std::max(LOGICAL_WIDTH, std::atoi(argv[++i]));
+            widthSet = true;
+        } else if (arg == "--window-height" && i + 1 < argc) {
+            windowHeight = std::max(LOGICAL_HEIGHT, std::atoi(argv[++i]));
+            heightSet = true;
+        }
+    }
+
+    if (!widthSet) {
+        windowWidth = LOGICAL_WIDTH * windowScale;
+    }
+    if (!heightSet) {
+        windowHeight = LOGICAL_HEIGHT * windowScale;
+    }
+
     SDL_Window* window = SDL_CreateWindow(
         "Tank Duel",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        LOGICAL_WIDTH * WINDOW_SCALE, LOGICAL_HEIGHT * WINDOW_SCALE,
-        SDL_WINDOW_SHOWN);
+        windowWidth, windowHeight,
+        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
     if (!window) {
         SDL_Quit();
         return 1;
@@ -894,25 +1384,24 @@ int main(int argc, char** argv) {
     }
 
     GameState state;
-    generateTerrain(state.terrainHeights);
 
     state.player1.id = 1;
     state.player1.facingRight = true;
-    state.player1.aimUp = SDL_SCANCODE_W;
-    state.player1.aimDown = SDL_SCANCODE_S;
-    state.player1.powerUp = SDL_SCANCODE_E;
-    state.player1.powerDown = SDL_SCANCODE_Q;
-    state.player1.fire = SDL_SCANCODE_F;
-    state.player1.nextAmmo = SDL_SCANCODE_G;
+    state.player1.aimUp = SDL_SCANCODE_Q;
+    state.player1.aimDown = SDL_SCANCODE_A;
+    state.player1.powerUp = SDL_SCANCODE_W;
+    state.player1.powerDown = SDL_SCANCODE_S;
+    state.player1.fire = SDL_SCANCODE_SPACE;
+    state.player1.nextAmmo = SDL_SCANCODE_E;
 
     state.player2.id = 2;
     state.player2.facingRight = false;
-    state.player2.aimUp = SDL_SCANCODE_UP;
-    state.player2.aimDown = SDL_SCANCODE_DOWN;
-    state.player2.powerUp = SDL_SCANCODE_PAGEUP;
-    state.player2.powerDown = SDL_SCANCODE_PAGEDOWN;
-    state.player2.fire = SDL_SCANCODE_RCTRL;
-    state.player2.nextAmmo = SDL_SCANCODE_RSHIFT;
+    state.player2.aimUp = SDL_SCANCODE_I;
+    state.player2.aimDown = SDL_SCANCODE_K;
+    state.player2.powerUp = SDL_SCANCODE_O;
+    state.player2.powerDown = SDL_SCANCODE_L;
+    state.player2.fire = SDL_SCANCODE_RETURN;
+    state.player2.nextAmmo = SDL_SCANCODE_P;
 
     resetMatch(state);
 
@@ -945,6 +1434,9 @@ int main(int argc, char** argv) {
         }
 
         updateExplosions(state.explosions, dt);
+        updateNapalmPatches(state, dt);
+        applyGravityToTank(state.player1, state.terrainHeights, dt);
+        applyGravityToTank(state.player2, state.terrainHeights, dt);
         if (state.player1.exploding) {
             state.player1.explosionTimer -= dt;
             if (state.player1.explosionTimer <= 0.0f) {
@@ -959,7 +1451,9 @@ int main(int argc, char** argv) {
         }
 
         drawBackground(renderer);
-        drawTerrain(renderer, state.terrainHeights);
+        drawTerrain(renderer, state.terrainHeights, state.terrainSubstrate);
+        drawScenery(renderer, state.scenery);
+        drawNapalmPatches(renderer, state.napalmPatches);
         drawProjectiles(renderer, state.projectiles);
         drawExplosions(renderer, state.explosions);
         drawTank(renderer, state.player1, assets, true);
