@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>English</string>
+
+    <key>CFBundleExecutable</key>
+    <string>TankDuel</string>
+
+    <key>CFBundleIconFile</key>
+    <string>tankduel.icns</string>
+
+    <key>CFBundleIdentifier</key>
+    <string>com.tankduel.game</string>
+
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+
+    <key>CFBundleLongVersionString</key>
+    <string>@PROJECT_VERSION@</string>
+
+    <key>CFBundleName</key>
+    <string>TankDuel</string>
+
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+
+    <key>CFBundleShortVersionString</key>
+    <string>@PROJECT_VERSION@</string>
+
+    <key>CFBundleSignature</key>
+    <string>TKDL</string>
+
+    <key>CFBundleVersion</key>
+    <string>@PROJECT_VERSION@</string>
+
+    <key>LSMinimumSystemVersion</key>
+    <string>10.15</string>
+
+    <key>NSHighResolutionCapable</key>
+    <true/>
+
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2024 TankDuel Development Team. All rights reserved.</string>
+
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.games</string>
+
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+
+    <key>NSRequiresAquaSystemAppearance</key>
+    <false/>
+</dict>
+</plist>

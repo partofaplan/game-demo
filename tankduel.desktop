@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=TankDuel
+Comment=An exciting tank battle game
+Exec=TankDuel
+Icon=tankduel
+Terminal=false
+Type=Application
+Categories=Game;ActionGame;
+StartupNotify=true
+Keywords=tank;game;battle;action;multiplayer;
+MimeType=application/x-tankduel-savegame;

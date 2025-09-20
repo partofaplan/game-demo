@@ -1,3 +1,9 @@
 /Users/zachperkins/repos/game-demo/build/CMakeFiles/tank_duel.dir
+/Users/zachperkins/repos/game-demo/build/CMakeFiles/package.dir
+/Users/zachperkins/repos/game-demo/build/CMakeFiles/package_source.dir
 /Users/zachperkins/repos/game-demo/build/CMakeFiles/edit_cache.dir
 /Users/zachperkins/repos/game-demo/build/CMakeFiles/rebuild_cache.dir
+/Users/zachperkins/repos/game-demo/build/CMakeFiles/list_install_components.dir
+/Users/zachperkins/repos/game-demo/build/CMakeFiles/install.dir
+/Users/zachperkins/repos/game-demo/build/CMakeFiles/install/local.dir
+/Users/zachperkins/repos/game-demo/build/CMakeFiles/install/strip.dir

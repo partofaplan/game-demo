@@ -6,7 +6,7 @@ CXX_DEFINES =
 
 CXX_INCLUDES = -isystem /usr/local/Cellar/sdl2/2.32.10/include/SDL2
 
-CXX_FLAGSx86_64 = -std=gnu++17 -arch x86_64
+CXX_FLAGSx86_64 = -O3 -DNDEBUG -std=c++17 -arch x86_64
 
-CXX_FLAGS = -std=gnu++17 -arch x86_64
+CXX_FLAGS = -O3 -DNDEBUG -std=c++17 -arch x86_64
 

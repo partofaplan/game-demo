@@ -1,0 +1,20 @@
+Source: tankduel
+Section: games
+Priority: optional
+Maintainer: TankDuel Development Team <dev@tankduel.com>
+Build-Depends: debhelper (>= 11), cmake (>= 3.16), libsdl2-dev
+Standards-Version: 4.5.0
+Homepage: https://github.com/yourname/tank-duel
+
+Package: tankduel
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, libsdl2-2.0-0
+Description: Tank Duel - An exciting tank battle game
+ Tank Duel is an action-packed tank battle game built with SDL2.
+ Features include:
+  * Multiplayer battles
+  * Various tank types
+  * Dynamic battlefields
+  * Smooth graphics and gameplay
+ .
+ This package contains the main game executable.

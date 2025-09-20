@@ -8,6 +8,7 @@ set(CMAKE_DEPENDS_GENERATOR "Unix Makefiles")
 set(CMAKE_MAKEFILE_DEPENDS
   "CMakeCache.txt"
   "/Users/zachperkins/repos/game-demo/CMakeLists.txt"
+  "/Users/zachperkins/repos/game-demo/Info.plist.in"
   "CMakeFiles/4.1.1/CMakeCXXCompiler.cmake"
   "CMakeFiles/4.1.1/CMakeSystem.cmake"
   "/usr/local/lib/cmake/SDL2/sdl2-config-version.cmake"
@@ -36,6 +37,8 @@ set(CMAKE_MAKEFILE_DEPENDS
   "/usr/local/share/cmake/Modules/CMakeTestCXXCompiler.cmake"
   "/usr/local/share/cmake/Modules/CMakeTestCompilerCommon.cmake"
   "/usr/local/share/cmake/Modules/CMakeUnixFindMake.cmake"
+  "/usr/local/share/cmake/Modules/CPack.cmake"
+  "/usr/local/share/cmake/Modules/CPackComponent.cmake"
   "/usr/local/share/cmake/Modules/Compiler/ADSP-DetermineCompiler.cmake"
   "/usr/local/share/cmake/Modules/Compiler/ARMCC-DetermineCompiler.cmake"
   "/usr/local/share/cmake/Modules/Compiler/ARMClang-DetermineCompiler.cmake"
@@ -82,6 +85,7 @@ set(CMAKE_MAKEFILE_DEPENDS
   "/usr/local/share/cmake/Modules/Compiler/XLClang-CXX-DetermineCompiler.cmake"
   "/usr/local/share/cmake/Modules/Compiler/zOS-CXX-DetermineCompiler.cmake"
   "/usr/local/share/cmake/Modules/FeatureSummary.cmake"
+  "/usr/local/share/cmake/Modules/GNUInstallDirs.cmake"
   "/usr/local/share/cmake/Modules/Internal/CMakeCXXLinkerInformation.cmake"
   "/usr/local/share/cmake/Modules/Internal/CMakeCommonLinkerInformation.cmake"
   "/usr/local/share/cmake/Modules/Internal/CMakeDetermineLinkerId.cmake"
@@ -98,6 +102,7 @@ set(CMAKE_MAKEFILE_DEPENDS
   "/usr/local/share/cmake/Modules/Platform/Linker/Apple-AppleClang-CXX.cmake"
   "/usr/local/share/cmake/Modules/Platform/Linker/Apple-AppleClang.cmake"
   "/usr/local/share/cmake/Modules/Platform/UnixPaths.cmake"
+  "/usr/local/share/cmake/Templates/CPackConfig.cmake.in"
   )
 
 # The corresponding makefile is:
@@ -112,6 +117,11 @@ set(CMAKE_MAKEFILE_PRODUCTS
   "CMakeFiles/4.1.1/CMakeCXXCompiler.cmake"
   "CMakeFiles/4.1.1/CMakeCXXCompiler.cmake"
   "CMakeFiles/4.1.1/CMakeCXXCompiler.cmake"
+  "CPackConfig.cmake"
+  "CPackSourceConfig.cmake"
+  "TankDuel.app/Contents/MacOS"
+  "TankDuel.app/Contents/Info.plist"
+  "TankDuel.app/Contents/Info.plist"
   "CMakeFiles/CMakeDirectoryInformation.cmake"
   )
 

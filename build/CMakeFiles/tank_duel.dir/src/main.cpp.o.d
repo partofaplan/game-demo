@@ -146,7 +146,6 @@ CMakeFiles/tank_duel.dir/src/main.cpp.o: \
   /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_header_macro.h \
   /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_ptrdiff_t.h \
   /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_size_t.h \
-  /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_rsize_t.h \
   /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_wchar_t.h \
   /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_null.h \
   /Library/Developer/CommandLineTools/usr/lib/clang/17/include/__stddef_nullptr_t.h \

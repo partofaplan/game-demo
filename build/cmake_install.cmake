@@ -12,7 +12,7 @@ if(NOT DEFINED CMAKE_INSTALL_CONFIG_NAME)
     string(REGEX REPLACE "^[^A-Za-z0-9_]+" ""
            CMAKE_INSTALL_CONFIG_NAME "${BUILD_TYPE}")
   else()
-    set(CMAKE_INSTALL_CONFIG_NAME "")
+    set(CMAKE_INSTALL_CONFIG_NAME "Release")
   endif()
   message(STATUS "Install configuration: \"${CMAKE_INSTALL_CONFIG_NAME}\"")
 endif()
@@ -35,6 +35,27 @@ endif()
 # Set path to fallback-tool for dependency-resolution.
 if(NOT DEFINED CMAKE_OBJDUMP)
   set(CMAKE_OBJDUMP "/usr/bin/objdump")
+endif()
+
+if(CMAKE_INSTALL_COMPONENT STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/." TYPE DIRECTORY FILES "/Users/zachperkins/repos/game-demo/build/TankDuel.app" USE_SOURCE_PERMISSIONS)
+  if(EXISTS "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/./TankDuel.app/Contents/MacOS/TankDuel" AND
+     NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/./TankDuel.app/Contents/MacOS/TankDuel")
+    execute_process(COMMAND /usr/bin/install_name_tool
+      -delete_rpath "/usr/local/Cellar/sdl2/2.32.10/lib"
+      "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/./TankDuel.app/Contents/MacOS/TankDuel")
+  endif()
+endif()
+
+if(CMAKE_INSTALL_COMPONENT STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/TankDuel.app/Contents/Frameworks" TYPE FILE OPTIONAL FILES "/Users/zachperkins/repos/game-demo/SDL2::SDL2")
+endif()
+
+if(CMAKE_INSTALL_COMPONENT STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/share/doc/TankDuel" TYPE FILE OPTIONAL FILES
+    "/Users/zachperkins/repos/game-demo/README.md"
+    "/Users/zachperkins/repos/game-demo/LICENSE"
+    )
 endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
