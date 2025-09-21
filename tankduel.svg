@@ -1,0 +1,48 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="240" fill="#2a5434" stroke="#1a3d24" stroke-width="8"/>
+
+  <!-- Tank body (main hull) -->
+  <rect x="160" y="280" width="192" height="80" fill="#4a7c59" stroke="#2a5434" stroke-width="3"/>
+
+  <!-- Tank turret -->
+  <ellipse cx="256" cy="300" rx="60" ry="40" fill="#5a8c69" stroke="#2a5434" stroke-width="3"/>
+
+  <!-- Tank barrel -->
+  <rect x="300" y="295" width="120" height="10" fill="#3a6b48" stroke="#2a5434" stroke-width="2"/>
+
+  <!-- Tank tracks (left) -->
+  <rect x="140" y="340" width="80" height="30" rx="15" fill="#1a3d24" stroke="#0f2a18" stroke-width="2"/>
+  <circle cx="155" cy="355" r="8" fill="#2a5434"/>
+  <circle cx="175" cy="355" r="8" fill="#2a5434"/>
+  <circle cx="195" cy="355" r="8" fill="#2a5434"/>
+  <circle cx="205" cy="355" r="8" fill="#2a5434"/>
+
+  <!-- Tank tracks (right) -->
+  <rect x="292" y="340" width="80" height="30" rx="15" fill="#1a3d24" stroke="#0f2a18" stroke-width="2"/>
+  <circle cx="307" cy="355" r="8" fill="#2a5434"/>
+  <circle cx="327" cy="355" r="8" fill="#2a5434"/>
+  <circle cx="347" cy="355" r="8" fill="#2a5434"/>
+  <circle cx="357" cy="355" r="8" fill="#2a5434"/>
+
+  <!-- Tank hatch -->
+  <circle cx="256" cy="285" r="12" fill="#3a6b48" stroke="#2a5434" stroke-width="2"/>
+
+  <!-- Tank details (rivets) -->
+  <circle cx="180" cy="300" r="3" fill="#2a5434"/>
+  <circle cx="200" cy="300" r="3" fill="#2a5434"/>
+  <circle cx="312" cy="300" r="3" fill="#2a5434"/>
+  <circle cx="332" cy="300" r="3" fill="#2a5434"/>
+
+  <!-- Crosshair overlay -->
+  <line x1="256" y1="180" x2="256" y2="200" stroke="#ffffff" stroke-width="4" opacity="0.8"/>
+  <line x1="256" y1="312" x2="256" y2="332" stroke="#ffffff" stroke-width="4" opacity="0.8"/>
+  <line x1="180" y1="256" x2="200" y2="256" stroke="#ffffff" stroke-width="4" opacity="0.8"/>
+  <line x1="312" y1="256" x2="332" y2="256" stroke="#ffffff" stroke-width="4" opacity="0.8"/>
+  <circle cx="256" cy="256" r="8" fill="none" stroke="#ffffff" stroke-width="3" opacity="0.8"/>
+
+  <!-- Tank exhaust smoke -->
+  <ellipse cx="180" cy="270" rx="8" ry="4" fill="#666666" opacity="0.6"/>
+  <ellipse cx="175" cy="265" rx="6" ry="3" fill="#777777" opacity="0.5"/>
+  <ellipse cx="170" cy="260" rx="4" ry="2" fill="#888888" opacity="0.4"/>
+</svg>

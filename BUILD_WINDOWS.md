@@ -117,6 +117,8 @@ After building:
 - Executable: `build\Release\TankDuel.exe` (Visual Studio) or `build\TankDuel.exe` (MinGW)
 - Installer packages (if `-p` used): `build\*.exe`, `build\*.msi`, `build\*.zip`
 
+The executable includes the custom tank icon and Windows-specific metadata for a professional appearance.
+
 ## Running the Game
 
 Simply double-click `TankDuel.exe` or run from command line:

@@ -93,8 +93,16 @@ set_target_properties(tank_duel PROPERTIES
     OUTPUT_NAME "TankDuel"
     MACOSX_BUNDLE TRUE
     MACOSX_BUNDLE_INFO_PLIST ${CMAKE_SOURCE_DIR}/Info.plist.in
+    MACOSX_BUNDLE_ICON_FILE tankduel.icns
     WIN32_EXECUTABLE TRUE
 )
+
+# Add icon as resource for macOS
+if(APPLE)
+    set_source_files_properties(${CMAKE_SOURCE_DIR}/tankduel.icns PROPERTIES
+        MACOSX_PACKAGE_LOCATION Resources)
+    target_sources(tank_duel PRIVATE ${CMAKE_SOURCE_DIR}/tankduel.icns)
+endif()
 
 # Windows-specific optimizations
 if(WIN32)
