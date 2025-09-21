@@ -1022,31 +1022,185 @@ void drawTerrain(SDL_Renderer* renderer, const std::vector<int>& surface, const 
     }
 }
 
+void drawWatchtower(SDL_Renderer* renderer, const SDL_FRect& rect, float healthRatio) {
+    // Calculate watchtower proportions
+    float baseWidth = rect.w;
+    float topWidth = rect.w * 0.7f;
+    float towerHeight = rect.h * 0.75f;
+    float baseHeight = rect.h * 0.25f;
+
+    // Health-based color variations
+    Uint8 stoneR = static_cast<Uint8>(105 + 25 * healthRatio);
+    Uint8 stoneG = static_cast<Uint8>(100 + 20 * healthRatio);
+    Uint8 stoneB = static_cast<Uint8>(95 + 15 * healthRatio);
+
+    Uint8 woodR = static_cast<Uint8>(101 + 30 * healthRatio);
+    Uint8 woodG = static_cast<Uint8>(67 + 20 * healthRatio);
+    Uint8 woodB = static_cast<Uint8>(33 + 15 * healthRatio);
+
+    // 1. Stone foundation base (wider, shorter)
+    SDL_FRect foundation = {
+        rect.x - baseWidth * 0.1f,
+        rect.y + rect.h - baseHeight,
+        baseWidth * 1.2f,
+        baseHeight
+    };
+    SDL_SetRenderDrawColor(renderer, stoneR - 15, stoneG - 15, stoneB - 10, 255);
+    SDL_RenderFillRectF(renderer, &foundation);
+
+    // Foundation stone texture (horizontal lines)
+    SDL_SetRenderDrawColor(renderer, stoneR - 25, stoneG - 25, stoneB - 20, 255);
+    for (int i = 0; i < 3; ++i) {
+        int y = static_cast<int>(foundation.y + foundation.h * 0.25f * (i + 1));
+        SDL_RenderDrawLine(renderer, static_cast<int>(foundation.x), y,
+                          static_cast<int>(foundation.x + foundation.w), y);
+    }
+
+    // 2. Main tower body (tapered trapezoid)
+    float towerBottom = rect.y + baseHeight;
+    float towerTop = rect.y;
+    float leftBottom = rect.x;
+    float rightBottom = rect.x + baseWidth;
+    float leftTop = rect.x + (baseWidth - topWidth) * 0.5f;
+    float rightTop = leftTop + topWidth;
+
+    // Draw tower as trapezoid using triangles
+    SDL_SetRenderDrawColor(renderer, stoneR, stoneG, stoneB, 255);
+
+    // Left triangle
+    SDL_Vertex leftTriangle[3] = {
+        {{leftBottom, towerBottom + rect.h - baseHeight}, {stoneR, stoneG, stoneB, 255}, {0, 0}},
+        {{leftTop, towerTop}, {stoneR, stoneG, stoneB, 255}, {0, 0}},
+        {{leftBottom, towerTop}, {stoneR, stoneG, stoneB, 255}, {0, 0}}
+    };
+    SDL_RenderGeometry(renderer, nullptr, leftTriangle, 3, nullptr, 0);
+
+    // Right triangle
+    SDL_Vertex rightTriangle[3] = {
+        {{rightBottom, towerBottom + rect.h - baseHeight}, {stoneR, stoneG, stoneB, 255}, {0, 0}},
+        {{rightTop, towerTop}, {stoneR, stoneG, stoneB, 255}, {0, 0}},
+        {{rightBottom, towerTop}, {stoneR, stoneG, stoneB, 255}, {0, 0}}
+    };
+    SDL_RenderGeometry(renderer, nullptr, rightTriangle, 3, nullptr, 0);
+
+    // Center rectangle
+    SDL_FRect centerRect = {leftTop, towerTop, topWidth, towerHeight};
+    SDL_RenderFillRectF(renderer, &centerRect);
+
+    // 3. Stone block texture (vertical lines on tower)
+    SDL_SetRenderDrawColor(renderer, stoneR - 20, stoneG - 20, stoneB - 15, 255);
+    for (int i = 1; i < 4; ++i) {
+        float ratio = i / 4.0f;
+        float leftX = leftBottom + (leftTop - leftBottom) * ratio;
+        float rightX = rightBottom + (rightTop - rightBottom) * ratio;
+        float y = towerBottom + rect.h - baseHeight + (towerTop - (towerBottom + rect.h - baseHeight)) * ratio;
+        SDL_RenderDrawLine(renderer, static_cast<int>(leftX), static_cast<int>(y),
+                          static_cast<int>(rightX), static_cast<int>(y));
+    }
+
+    // 4. Wooden support beams (cross-bracing)
+    SDL_SetRenderDrawColor(renderer, woodR, woodG, woodB, 255);
+
+    // Cross braces at different heights
+    float braceY1 = rect.y + rect.h * 0.3f;
+    float braceY2 = rect.y + rect.h * 0.6f;
+
+    // Calculate brace positions with tapering
+    float brace1LeftX = rect.x + (baseWidth - topWidth) * 0.3f;
+    float brace1RightX = rect.x + baseWidth - (baseWidth - topWidth) * 0.3f;
+    float brace2LeftX = rect.x + (baseWidth - topWidth) * 0.1f;
+    float brace2RightX = rect.x + baseWidth - (baseWidth - topWidth) * 0.1f;
+
+    // Draw cross braces
+    SDL_RenderDrawLine(renderer, static_cast<int>(brace1LeftX), static_cast<int>(braceY1),
+                      static_cast<int>(brace1RightX), static_cast<int>(braceY2));
+    SDL_RenderDrawLine(renderer, static_cast<int>(brace1RightX), static_cast<int>(braceY1),
+                      static_cast<int>(brace1LeftX), static_cast<int>(braceY2));
+
+    // 5. Observation platform with railings
+    SDL_FRect platform = {
+        leftTop - topWidth * 0.15f,
+        rect.y - rect.h * 0.08f,
+        topWidth * 1.3f,
+        rect.h * 0.12f
+    };
+    SDL_SetRenderDrawColor(renderer, woodR + 10, woodG + 5, woodB, 255);
+    SDL_RenderFillRectF(renderer, &platform);
+
+    // Platform railings
+    SDL_SetRenderDrawColor(renderer, woodR - 10, woodG - 10, woodB - 5, 255);
+    SDL_RenderDrawLine(renderer, static_cast<int>(platform.x), static_cast<int>(platform.y),
+                      static_cast<int>(platform.x + platform.w), static_cast<int>(platform.y));
+    SDL_RenderDrawLine(renderer, static_cast<int>(platform.x), static_cast<int>(platform.y + platform.h),
+                      static_cast<int>(platform.x + platform.w), static_cast<int>(platform.y + platform.h));
+
+    // 6. Guard house/watch room
+    SDL_FRect guardHouse = {
+        leftTop + topWidth * 0.1f,
+        rect.y - rect.h * 0.25f,
+        topWidth * 0.8f,
+        rect.h * 0.2f
+    };
+    SDL_SetRenderDrawColor(renderer, woodR + 15, woodG + 10, woodB + 5, 255);
+    SDL_RenderFillRectF(renderer, &guardHouse);
+
+    // Guard house roof (simple peaked roof)
+    SDL_SetRenderDrawColor(renderer, woodR - 20, woodG - 15, woodB - 10, 255);
+    SDL_Point roofPoints[4] = {
+        {static_cast<int>(guardHouse.x), static_cast<int>(guardHouse.y)},
+        {static_cast<int>(guardHouse.x + guardHouse.w * 0.5f), static_cast<int>(guardHouse.y - guardHouse.h * 0.4f)},
+        {static_cast<int>(guardHouse.x + guardHouse.w), static_cast<int>(guardHouse.y)},
+        {static_cast<int>(guardHouse.x), static_cast<int>(guardHouse.y)}
+    };
+    SDL_RenderDrawLines(renderer, roofPoints, 4);
+
+    // 7. Windows/viewing ports
+    SDL_SetRenderDrawColor(renderer, 45, 45, 50, 255);
+
+    // Front viewing window
+    SDL_Rect frontWindow = {
+        static_cast<int>(guardHouse.x + guardHouse.w * 0.35f),
+        static_cast<int>(guardHouse.y + guardHouse.h * 0.25f),
+        static_cast<int>(guardHouse.w * 0.3f),
+        static_cast<int>(guardHouse.h * 0.4f)
+    };
+    SDL_RenderFillRect(renderer, &frontWindow);
+
+    // Tower arrow slits
+    SDL_Rect arrowSlit = {
+        static_cast<int>(leftTop + topWidth * 0.45f),
+        static_cast<int>(rect.y + rect.h * 0.4f),
+        2,
+        static_cast<int>(rect.h * 0.08f)
+    };
+    SDL_RenderFillRect(renderer, &arrowSlit);
+
+    arrowSlit.y = static_cast<int>(rect.y + rect.h * 0.6f);
+    SDL_RenderFillRect(renderer, &arrowSlit);
+
+    // 8. Battle damage effects (if health is low)
+    if (healthRatio < 0.7f) {
+        SDL_SetRenderDrawColor(renderer, 60, 60, 65, 255);
+        // Cracks in the stone
+        SDL_RenderDrawLine(renderer, static_cast<int>(rect.x + rect.w * 0.3f), static_cast<int>(rect.y + rect.h * 0.2f),
+                          static_cast<int>(rect.x + rect.w * 0.4f), static_cast<int>(rect.y + rect.h * 0.5f));
+
+        if (healthRatio < 0.4f) {
+            // More severe damage
+            SDL_RenderDrawLine(renderer, static_cast<int>(rect.x + rect.w * 0.6f), static_cast<int>(rect.y + rect.h * 0.1f),
+                              static_cast<int>(rect.x + rect.w * 0.7f), static_cast<int>(rect.y + rect.h * 0.4f));
+        }
+    }
+}
+
 void drawScenery(SDL_Renderer* renderer, const std::vector<SceneryObject>& objects) {
     for (const auto& obj : objects) {
         if (!obj.alive) continue;
         float healthRatio = obj.maxHealth > 0.0f ? std::clamp(obj.health / obj.maxHealth, 0.0f, 1.0f) : 1.0f;
-        SDL_FRect rect = obj.rect;
-        SDL_Color base = SDL_Color{ static_cast<Uint8>(124 + 32 * healthRatio), static_cast<Uint8>(128 + 26 * healthRatio), static_cast<Uint8>(134 + 24 * healthRatio), 255 };
-        SDL_SetRenderDrawColor(renderer, base.r, base.g, base.b, 255);
-        SDL_RenderFillRectF(renderer, &rect);
 
-        SDL_SetRenderDrawColor(renderer, 92, 92, 104, 255);
-        SDL_RenderDrawLine(renderer, static_cast<int>(rect.x + rect.w * 0.2f), static_cast<int>(rect.y + rect.h * 0.2f), static_cast<int>(rect.x + rect.w * 0.8f), static_cast<int>(rect.y + rect.h * 0.95f));
-        SDL_RenderDrawLine(renderer, static_cast<int>(rect.x + rect.w * 0.8f), static_cast<int>(rect.y + rect.h * 0.2f), static_cast<int>(rect.x + rect.w * 0.2f), static_cast<int>(rect.y + rect.h * 0.95f));
-
-        SDL_FRect platform{ rect.x - rect.w * 0.1f, rect.y - rect.h * 0.08f, rect.w * 1.2f, rect.h * 0.18f };
-        SDL_SetRenderDrawColor(renderer, 84, 68, 60, 255);
-        SDL_RenderFillRectF(renderer, &platform);
-
-        SDL_FRect hut{ rect.x + rect.w * 0.08f, rect.y - rect.h * 0.24f, rect.w * 0.84f, rect.h * 0.25f };
-        SDL_SetRenderDrawColor(renderer, 98, 88, 80, 255);
-        SDL_RenderFillRectF(renderer, &hut);
-        SDL_SetRenderDrawColor(renderer, 150, 152, 160, 255);
-        SDL_Rect window{ static_cast<int>(hut.x + hut.w * 0.2f), static_cast<int>(hut.y + hut.h * 0.35f), static_cast<int>(hut.w * 0.2f), static_cast<int>(hut.h * 0.4f) };
-        SDL_RenderFillRect(renderer, &window);
-        window.x += static_cast<int>(hut.w * 0.4f);
-        SDL_RenderFillRect(renderer, &window);
+        if (obj.kind == SceneryKind::Tower) {
+            drawWatchtower(renderer, obj.rect, healthRatio);
+        }
     }
 }
 
