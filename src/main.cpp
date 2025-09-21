@@ -23,6 +23,7 @@ constexpr int DAMAGE_MORTAR            = 24;
 constexpr int DAMAGE_CLUSTER           = 16;
 constexpr int DAMAGE_CLUSTER_SHARD     = 12;
 constexpr int DAMAGE_NAPALM_DIRECT     = 18;
+constexpr int DAMAGE_DIRTGUN           = 0;
 constexpr int TANK_HP = 100;
 constexpr float RELOAD_TIME = 0.45f;
 constexpr float GRAVITY = 120.0f;
@@ -59,6 +60,7 @@ constexpr float RADIUS_MORTAR = 3.2f;
 constexpr float RADIUS_CLUSTER = 3.0f;
 constexpr float RADIUS_CLUSTER_SHARD = 2.2f;
 constexpr float RADIUS_NAPALM = 3.8f;
+constexpr float RADIUS_DIRTGUN = 2.5f;
 
 constexpr float CLUSTER_SPLIT_TIME = 0.45f;
 constexpr float CLUSTER_SPREAD = 0.22f;
@@ -72,13 +74,17 @@ constexpr int GLYPH_WIDTH = 6;
 constexpr int GLYPH_HEIGHT = 7;
 constexpr int DEFAULT_GLYPH_PIXEL = 3;
 
-enum class ProjectileKind { Mortar, Cluster, ClusterShard, Napalm };
+enum class ProjectileKind { Mortar, Cluster, ClusterShard, Napalm, Dirtgun };
 
 enum class SceneryKind { Tower };
 
 enum class GameMode { OnePlayer, TwoPlayer };
 
-enum class GameScreen { Menu, Playing };
+enum class Difficulty { Easy, Medium, Hard };
+
+enum class PlayMode { TurnBased, FreeForAll };
+
+enum class GameScreen { Menu, DifficultySelect, ModeSelect, Playing, Paused };
 
 std::mt19937& rng() {
     static std::mt19937 engine{ std::random_device{}() };
@@ -94,7 +100,8 @@ ProjectileKind nextAmmoType(ProjectileKind current) {
     switch (current) {
         case ProjectileKind::Mortar: return ProjectileKind::Cluster;
         case ProjectileKind::Cluster: return ProjectileKind::Napalm;
-        case ProjectileKind::Napalm: return ProjectileKind::Mortar;
+        case ProjectileKind::Napalm: return ProjectileKind::Dirtgun;
+        case ProjectileKind::Dirtgun: return ProjectileKind::Mortar;
         case ProjectileKind::ClusterShard: return ProjectileKind::Mortar;
     }
     return ProjectileKind::Mortar;
@@ -105,6 +112,7 @@ const char* ammoDisplayName(ProjectileKind kind) {
         case ProjectileKind::Mortar: return "Mortar";
         case ProjectileKind::Cluster: return "Cluster";
         case ProjectileKind::Napalm: return "Napalm";
+        case ProjectileKind::Dirtgun: return "Dirtgun";
         case ProjectileKind::ClusterShard: return "Cluster";
     }
     return "Mortar";
@@ -265,6 +273,8 @@ struct SceneryObject {
     float health{100.0f};
     float maxHealth{100.0f};
     bool alive{true};
+    float verticalVelocity{0.0f};
+    bool falling{false};
 };
 
 struct Tank {
@@ -281,11 +291,17 @@ struct Tank {
     SDL_Scancode powerDown{};
     SDL_Scancode fire{};
     SDL_Scancode nextAmmo{};
+    SDL_Scancode activateForceField{};
     int id{};
     bool facingRight{true};
     bool exploding{false};
     float explosionTimer{0.0f};
     bool ammoSwitchHeld{false};
+    bool forceFieldKeyHeld{false};
+    int shotsFired{0};
+    bool forceFieldActive{false};
+    bool forceFieldAvailable{true};
+    float forceFieldRadius{35.0f};
 };
 
 struct GameState {
@@ -310,7 +326,10 @@ struct GameState {
     // Menu and game mode system
     GameScreen currentScreen{GameScreen::Menu};
     GameMode gameMode{GameMode::TwoPlayer};
+    Difficulty difficulty{Difficulty::Medium};
+    PlayMode playMode{PlayMode::TurnBased};
     int menuSelection{0};  // 0 = 1 Player, 1 = 2 Player
+    int pauseMenuSelection{0};  // 0 = Continue, 1 = Quit Game
 
     // Bot AI system
     bool isPlayer2Bot{false};
@@ -438,6 +457,11 @@ Projectile spawnProjectile(const Tank& tank) {
             speed *= 0.9f;
             proj.spawnedChildren = true;
             break;
+        case ProjectileKind::Dirtgun:
+            proj.damage = DAMAGE_DIRTGUN;
+            proj.radius = RADIUS_DIRTGUN;
+            speed *= 1.1f;
+            break;
     }
 
     float angleDeg = turretWorldAngleDeg(tank);
@@ -481,17 +505,50 @@ void updateTank(Tank& tank, const Uint8* keys, float dt, std::vector<Projectile>
             tank.ammoSwitchHeld = false;
         }
 
-        // Only allow firing if it's the player's turn and they haven't fired yet
-        if (keys[tank.fire] && tank.reloadTimer <= 0.0f && !state.shotFired) {
-            projectiles.push_back(spawnProjectile(tank));
-            tank.reloadTimer = RELOAD_TIME;
-            state.shotFired = true;
-            state.waitingForTurnEnd = true;
-            state.turnEndTimer = 3.0f; // Wait 3 seconds to see projectile impact before switching turns
+        // Firing logic depends on play mode
+        bool canFire = keys[tank.fire] && tank.reloadTimer <= 0.0f;
+        if (state.playMode == PlayMode::FreeForAll) {
+            // In free-for-all, any player can fire anytime (no turn restrictions)
+            if (canFire) {
+                projectiles.push_back(spawnProjectile(tank));
+                tank.reloadTimer = RELOAD_TIME;
+
+                // Increment shot count and make force field available every 5 shots
+                tank.shotsFired++;
+                if (tank.shotsFired % 5 == 0) {
+                    tank.forceFieldAvailable = true;
+                }
+            }
+        } else {
+            // Turn-based: only allow firing if it's the player's turn and they haven't fired yet
+            if (canFire && !state.shotFired) {
+                projectiles.push_back(spawnProjectile(tank));
+                tank.reloadTimer = RELOAD_TIME;
+                state.shotFired = true;
+                state.waitingForTurnEnd = true;
+                state.turnEndTimer = 3.0f; // Wait 3 seconds to see projectile impact before switching turns
+
+                // Increment shot count and make force field available every 5 shots
+                tank.shotsFired++;
+                if (tank.shotsFired % 5 == 0) {
+                    tank.forceFieldAvailable = true;
+                }
+            }
         }
     } else {
         // Reset ammo switch state for non-active players
         tank.ammoSwitchHeld = false;
+    }
+
+    // Force field activation is available to all players regardless of turn (for free-for-all mode)
+    if (keys[tank.activateForceField]) {
+        if (!tank.forceFieldKeyHeld && tank.forceFieldAvailable && !tank.forceFieldActive) {
+            tank.forceFieldActive = true;
+            tank.forceFieldAvailable = false;
+            tank.forceFieldKeyHeld = true;
+        }
+    } else {
+        tank.forceFieldKeyHeld = false;
     }
 }
 
@@ -597,6 +654,8 @@ void addSceneryObject(GameState& state, SceneryKind kind, float centerX) {
     object.maxHealth = sceneryMaxHealth(kind);
     object.health = object.maxHealth;
     object.alive = true;
+    object.verticalVelocity = 0.0f;
+    object.falling = false;
     state.scenery.push_back(object);
 }
 
@@ -633,6 +692,30 @@ void generateSceneryObjects(GameState& state) {
 
     for (float center : selected) {
         addSceneryObject(state, SceneryKind::Tower, center);
+    }
+}
+
+void addTerrainMound(GameState& state, float centerX, float radius, float height) {
+    if (radius <= 0.0f || height <= 0.0f) return;
+    int start = std::max(0, static_cast<int>(std::floor(centerX - radius - 2.0f)));
+    int end = std::min(LOGICAL_WIDTH - 1, static_cast<int>(std::ceil(centerX + radius + 2.0f)));
+    float radiusSq = radius * radius;
+
+    for (int x = start; x <= end; ++x) {
+        float dx = static_cast<float>(x) - centerX;
+        float distSq = dx * dx;
+        if (distSq > radiusSq) continue;
+        float normalized = distSq / radiusSq;
+        float addition = height * std::sqrt(std::max(0.0f, 1.0f - normalized));
+
+        if (x >= 0 && x < static_cast<int>(state.terrainHeights.size())) {
+            state.terrainHeights[x] = std::max(LOGICAL_HEIGHT - 140, static_cast<int>(state.terrainHeights[x] - addition));
+            state.terrainHeights[x] = std::min(LOGICAL_HEIGHT - 20, state.terrainHeights[x]);
+        }
+        if (x >= 0 && x < static_cast<int>(state.terrainSubstrate.size())) {
+            state.terrainSubstrate[x] = std::max(LOGICAL_HEIGHT - 140, static_cast<int>(state.terrainSubstrate[x] - addition * 0.7f));
+            state.terrainSubstrate[x] = std::min(LOGICAL_HEIGHT - 20, state.terrainSubstrate[x]);
+        }
     }
 }
 
@@ -682,6 +765,53 @@ void applyGravityToTank(Tank& tank, const std::vector<int>& terrain, float dt) {
     if (tank.rect.y + tank.rect.h > LOGICAL_HEIGHT - 2) {
         tank.rect.y = LOGICAL_HEIGHT - 2 - tank.rect.h;
         tank.verticalVelocity = 0.0f;
+    }
+}
+
+void applyGravityToScenery(SceneryObject& object, const std::vector<int>& terrain, float dt) {
+    if (!object.alive) return;
+
+    constexpr float GRAVITY_ACC = 260.0f;
+    constexpr float SUPPORT_THRESHOLD = 2.0f;
+
+    // Sample terrain at multiple points under the tower for stability
+    float leftSample = terrainHeightAt(terrain, object.rect.x + object.rect.w * 0.1f);
+    float centerSample = terrainHeightAt(terrain, object.rect.x + object.rect.w * 0.5f);
+    float rightSample = terrainHeightAt(terrain, object.rect.x + object.rect.w * 0.9f);
+
+    // Tower needs support from at least two points to remain stable
+    float support1 = std::min(leftSample, centerSample);
+    float support2 = std::min(centerSample, rightSample);
+    float support = std::max(support1, support2);
+
+    float bottom = object.rect.y + object.rect.h;
+    float gap = support - bottom;
+
+    // Check if tower should start falling due to lack of support
+    if (gap > SUPPORT_THRESHOLD && !object.falling) {
+        object.falling = true;
+        object.verticalVelocity = 0.0f;
+    }
+
+    // Apply physics if falling
+    if (object.falling) {
+        object.verticalVelocity += GRAVITY_ACC * dt;
+        object.rect.y += object.verticalVelocity * dt;
+
+        // Check for landing
+        if (gap <= 0.5f && object.verticalVelocity > 0.0f) {
+            object.rect.y = support - object.rect.h;
+            object.verticalVelocity = 0.0f;
+            object.falling = false;
+        }
+    } else if (gap > 0.5f) {
+        // Tower is not falling but terrain has eroded slightly - settle down
+        object.rect.y = support - object.rect.h;
+    }
+
+    // Destroy tower if it falls off the world
+    if (object.rect.y > LOGICAL_HEIGHT) {
+        object.alive = false;
     }
 }
 
@@ -779,6 +909,9 @@ void updateProjectiles(GameState& state, float dt) {
                     state.napalmPatches.push_back(patch);
                     break;
                 }
+                case ProjectileKind::Dirtgun:
+                    addTerrainMound(state, proj.position.x, 16.0f, 8.0f);
+                    break;
             }
             state.explosions.push_back({proj.position, EXPLOSION_DURATION, EXPLOSION_DURATION, 24.0f, proj.kind == ProjectileKind::Napalm});
             proj.alive = false;
@@ -789,6 +922,43 @@ void updateProjectiles(GameState& state, float dt) {
             Tank* targets[2] = { &state.player1, &state.player2 };
             for (Tank* target : targets) {
                 if (proj.owner == target->id) continue;
+
+                // Check for force field collision first
+                if (target->forceFieldActive) {
+                    float tankCenterX = target->rect.x + target->rect.w * 0.5f;
+                    float tankCenterY = target->rect.y + target->rect.h * 0.5f;
+                    float dx = proj.position.x - tankCenterX;
+                    float dy = proj.position.y - tankCenterY;
+                    float distanceSquared = dx * dx + dy * dy;
+                    float forceFieldRadiusSquared = target->forceFieldRadius * target->forceFieldRadius;
+
+                    if (distanceSquared <= forceFieldRadiusSquared) {
+                        // Calculate bounce direction - reflect velocity away from tank center
+                        float distance = std::sqrt(distanceSquared);
+                        if (distance > 0.1f) {
+                            float normalX = dx / distance;
+                            float normalY = dy / distance;
+
+                            // Reflect velocity vector
+                            float dotProduct = proj.velocity.x * normalX + proj.velocity.y * normalY;
+                            proj.velocity.x -= 2.0f * dotProduct * normalX;
+                            proj.velocity.y -= 2.0f * dotProduct * normalY;
+
+                            // Add some bounce energy
+                            proj.velocity.x *= 1.1f;
+                            proj.velocity.y *= 1.1f;
+
+                            // Deactivate force field after use
+                            target->forceFieldActive = false;
+
+                            // Move projectile outside force field to prevent multiple bounces
+                            proj.position.x = tankCenterX + normalX * (target->forceFieldRadius + proj.radius + 2.0f);
+                            proj.position.y = tankCenterY + normalY * (target->forceFieldRadius + proj.radius + 2.0f);
+                        }
+                        continue; // Skip normal collision check
+                    }
+                }
+
                 SDL_FRect hitbox = tankHitbox(*target);
                 if (circleIntersectsRect(proj.position, proj.radius, hitbox)) {
                     target->hp -= proj.damage;
@@ -813,6 +983,9 @@ void updateProjectiles(GameState& state, float dt) {
                             state.napalmPatches.push_back(patch);
                             break;
                         }
+                        case ProjectileKind::Dirtgun:
+                            addTerrainMound(state, proj.position.x, 16.0f, 8.0f);
+                            break;
                     }
                     proj.alive = false;
                     if (target->hp <= 0) {
@@ -876,6 +1049,7 @@ constexpr GlyphRows GLYPH_E{ 0b111111, 0b100000, 0b100000, 0b111110, 0b100000, 0
 constexpr GlyphRows GLYPH_G{ 0b011110, 0b100001, 0b100000, 0b101111, 0b100001, 0b100001, 0b011110 };
 constexpr GlyphRows GLYPH_M{ 0b100001, 0b110011, 0b101101, 0b100001, 0b100001, 0b100001, 0b100001 };
 constexpr GlyphRows GLYPH_O{ 0b011110, 0b100001, 0b100001, 0b100001, 0b100001, 0b100001, 0b011110 };
+constexpr GlyphRows GLYPH_Q{ 0b011110, 0b100001, 0b100001, 0b100101, 0b100011, 0b100001, 0b011111 };
 constexpr GlyphRows GLYPH_V{ 0b100001, 0b100001, 0b100001, 0b100001, 0b010010, 0b010010, 0b001100 };
 constexpr GlyphRows GLYPH_R{ 0b111110, 0b100001, 0b100001, 0b111110, 0b101000, 0b100100, 0b100011 };
 constexpr GlyphRows GLYPH_T{ 0b111111, 0b001100, 0b001100, 0b001100, 0b001100, 0b001100, 0b001100 };
@@ -913,6 +1087,7 @@ const GlyphRows* glyphFor(char c) {
         case 'N': return &GLYPH_N;
         case 'O': return &GLYPH_O;
         case 'P': return &GLYPH_P;
+        case 'Q': return &GLYPH_Q;
         case 'R': return &GLYPH_R;
         case 'S': return &GLYPH_S;
         case 'T': return &GLYPH_T;
@@ -1011,11 +1186,6 @@ void drawBackground(SDL_Renderer* renderer) {
         int wobble = static_cast<int>(std::sin((y * 2.1f) + 0.4f) * 4.0f);
         SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, 255);
         SDL_RenderDrawLine(renderer, -8 + wobble, y, LOGICAL_WIDTH + 8 + wobble, y);
-
-        if (y % 7 == 0) {
-            SDL_SetRenderDrawColor(renderer, 255, 200, 150, 35);
-            SDL_RenderDrawLine(renderer, 0, y, LOGICAL_WIDTH, y + wobble / 2);
-        }
     }
 }
 
@@ -1069,7 +1239,7 @@ void drawTerrain(SDL_Renderer* renderer, const std::vector<int>& surface, const 
     }
 }
 
-void drawWatchtower(SDL_Renderer* renderer, const SDL_FRect& rect, float healthRatio) {
+void drawWatchtower(SDL_Renderer* renderer, const SDL_FRect& rect, float healthRatio, bool falling = false) {
     // Calculate watchtower proportions
     float baseWidth = rect.w;
     float topWidth = rect.w * 0.7f;
@@ -1084,6 +1254,14 @@ void drawWatchtower(SDL_Renderer* renderer, const SDL_FRect& rect, float healthR
     Uint8 woodR = static_cast<Uint8>(101 + 30 * healthRatio);
     Uint8 woodG = static_cast<Uint8>(67 + 20 * healthRatio);
     Uint8 woodB = static_cast<Uint8>(33 + 15 * healthRatio);
+
+    // Add falling visual effects
+    if (falling) {
+        stoneR = std::min(255, static_cast<int>(stoneR) + 40);
+        stoneG = std::min(255, static_cast<int>(stoneG) + 30);
+        woodR = std::min(255, static_cast<int>(woodR) + 40);
+        woodG = std::min(255, static_cast<int>(woodG) + 30);
+    }
 
     // 1. Stone foundation base (wider, shorter)
     SDL_FRect foundation = {
@@ -1246,7 +1424,7 @@ void drawScenery(SDL_Renderer* renderer, const std::vector<SceneryObject>& objec
         float healthRatio = obj.maxHealth > 0.0f ? std::clamp(obj.health / obj.maxHealth, 0.0f, 1.0f) : 1.0f;
 
         if (obj.kind == SceneryKind::Tower) {
-            drawWatchtower(renderer, obj.rect, healthRatio);
+            drawWatchtower(renderer, obj.rect, healthRatio, obj.falling);
         }
     }
 }
@@ -1329,6 +1507,11 @@ void drawProjectiles(SDL_Renderer* renderer, const std::vector<Projectile>& proj
                 core = SDL_Color{ 255, 228, 136, 255 };
                 glowExtra = 2.4f;
                 break;
+            case ProjectileKind::Dirtgun:
+                glow = SDL_Color{ 139, 101, 70, 160 };
+                core = SDL_Color{ 180, 140, 110, 255 };
+                glowExtra = 1.4f;
+                break;
         }
         drawFilledCircle(renderer, proj.position.x, proj.position.y, proj.radius + glowExtra, glow);
         drawFilledCircle(renderer, proj.position.x, proj.position.y, proj.radius, core);
@@ -1389,6 +1572,48 @@ void updateNapalmPatches(GameState& state, float dt) {
         std::remove_if(state.napalmPatches.begin(), state.napalmPatches.end(),
                        [](const NapalmPatch& p) { return p.timer <= 0.0f; }),
         state.napalmPatches.end());
+}
+
+void drawForceField(SDL_Renderer* renderer, const Tank& tank) {
+    float centerX = tank.rect.x + tank.rect.w * 0.5f;
+    float centerY = tank.rect.y + tank.rect.h * 0.5f;
+    float radius = tank.forceFieldRadius;
+
+    // Draw the force field as a bluish semi-transparent circle using basic SDL drawing
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+
+    // Draw multiple concentric circles for a glowing effect
+    for (int r = static_cast<int>(radius); r >= static_cast<int>(radius - 5); r--) {
+        Uint8 alpha = static_cast<Uint8>(20 + (radius - r) * 15);
+        SDL_SetRenderDrawColor(renderer, 100, 150, 255, alpha);
+
+        // Draw circle using Bresenham's circle algorithm
+        int x = 0;
+        int y = r;
+        int d = 3 - 2 * r;
+
+        while (y >= x) {
+            // Draw 8 octants
+            SDL_RenderDrawPoint(renderer, centerX + x, centerY + y);
+            SDL_RenderDrawPoint(renderer, centerX - x, centerY + y);
+            SDL_RenderDrawPoint(renderer, centerX + x, centerY - y);
+            SDL_RenderDrawPoint(renderer, centerX - x, centerY - y);
+            SDL_RenderDrawPoint(renderer, centerX + y, centerY + x);
+            SDL_RenderDrawPoint(renderer, centerX - y, centerY + x);
+            SDL_RenderDrawPoint(renderer, centerX + y, centerY - x);
+            SDL_RenderDrawPoint(renderer, centerX - y, centerY - x);
+
+            if (d < 0)
+                d = d + 4 * x + 6;
+            else {
+                d = d + 4 * (x - y) + 10;
+                y--;
+            }
+            x++;
+        }
+    }
+
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
 }
 
 void drawUI(SDL_Renderer* renderer, const GameState& state) {
@@ -1468,6 +1693,32 @@ void drawUI(SDL_Renderer* renderer, const GameState& state) {
     SDL_RenderFillRect(renderer, &turnBg);
 
     drawText(renderer, turnTextX, turnTextY, turnText, turnColor, 2);
+
+    // Draw force field indicators
+    SDL_Color ffColor{ 100, 150, 255, 255 };
+    SDL_Color ffUnavailableColor{ 100, 100, 100, 255 };
+
+    // Player 1 force field indicator
+    std::string p1FF = state.player1.forceFieldActive ? "SHIELD ACTIVE" :
+                      (state.player1.forceFieldAvailable ? "PRESS R FOR SHIELD" : "SHIELD RECHARGING");
+    SDL_Color p1FFColor = state.player1.forceFieldActive ? SDL_Color{255, 255, 100, 255} :
+                          (state.player1.forceFieldAvailable ? ffColor : ffUnavailableColor);
+
+    int p1FFWidth = measureText(p1FF, 1);
+    int p1FFX = 25;
+    int p1FFY = 85;
+    drawText(renderer, p1FFX, p1FFY, p1FF, p1FFColor, 1);
+
+    // Player 2 force field indicator
+    std::string p2FF = state.player2.forceFieldActive ? "SHIELD ACTIVE" :
+                      (state.player2.forceFieldAvailable ? "PRESS U FOR SHIELD" : "SHIELD RECHARGING");
+    SDL_Color p2FFColor = state.player2.forceFieldActive ? SDL_Color{255, 255, 100, 255} :
+                          (state.player2.forceFieldAvailable ? ffColor : ffUnavailableColor);
+
+    int p2FFWidth = measureText(p2FF, 1);
+    int p2FFX = LOGICAL_WIDTH - p2FFWidth - 25;
+    int p2FFY = 85;
+    drawText(renderer, p2FFX, p2FFY, p2FF, p2FFColor, 1);
 }
 
 void drawBanner(SDL_Renderer* renderer, int winner) {
@@ -1628,6 +1879,153 @@ void drawMenu(SDL_Renderer* renderer, const GameState& state) {
     drawText(renderer, instruct2X, instruct2Y, instruct2, instructColor, 2);
 }
 
+void drawDifficultyMenu(SDL_Renderer* renderer, const GameState& state) {
+    drawBackground(renderer);
+
+    const std::string title = "SELECT DIFFICULTY";
+    SDL_Color titleColor{ 255, 236, 180, 255 };
+    SDL_Color selectedColor{ 255, 255, 100, 255 };
+    SDL_Color normalColor{ 200, 200, 200, 255 };
+
+    int titleWidth = measureText(title, 4);
+    int titleX = (LOGICAL_WIDTH - titleWidth) / 2;
+    int titleY = 120;
+    drawText(renderer, titleX, titleY, title, titleColor, 4);
+
+    const std::string options[3] = {"EASY", "MEDIUM", "HARD"};
+    const std::string descriptions[3] = {
+        "POOR AIM",
+        "DECENT AIM",
+        "PERFECT AIM"
+    };
+
+    for (int i = 0; i < 3; i++) {
+        SDL_Color optionColor = (state.menuSelection == i) ? selectedColor : normalColor;
+        SDL_Color descColor = (state.menuSelection == i) ? titleColor : SDL_Color{150, 150, 150, 255};
+
+        int optionWidth = measureText(options[i], 3);
+        int descWidth = measureText(descriptions[i], 2);
+        int optionX = (LOGICAL_WIDTH - optionWidth) / 2;
+        int descX = (LOGICAL_WIDTH - descWidth) / 2;
+        int optionY = 190 + i * 55;  // More spacing between options
+        int descY = optionY + 30;    // More space below option text
+
+        if (state.menuSelection == i) {
+            SDL_SetRenderDrawColor(renderer, 50, 50, 100, 180);
+            SDL_Rect selectionBg = {optionX - 10, optionY - 6, optionWidth + 20, 45};  // Bigger selection box
+            SDL_RenderFillRect(renderer, &selectionBg);
+        }
+
+        drawText(renderer, optionX, optionY, options[i], optionColor, 3);
+        drawText(renderer, descX, descY, descriptions[i], descColor, 2);
+    }
+
+    SDL_Color instructColor{ 150, 150, 150, 255 };
+    const std::string instruct = "W/S TO SELECT, SPACE TO CONTINUE";
+    int instructWidth = measureText(instruct, 2);
+    int instructX = (LOGICAL_WIDTH - instructWidth) / 2;
+    drawText(renderer, instructX, 350, instruct, instructColor, 2);
+}
+
+void drawModeMenu(SDL_Renderer* renderer, const GameState& state) {
+    drawBackground(renderer);
+
+    const std::string title = "SELECT GAME MODE";
+    SDL_Color titleColor{ 255, 236, 180, 255 };
+    SDL_Color selectedColor{ 255, 255, 100, 255 };
+    SDL_Color normalColor{ 200, 200, 200, 255 };
+
+    int titleWidth = measureText(title, 4);
+    int titleX = (LOGICAL_WIDTH - titleWidth) / 2;
+    int titleY = 120;
+    drawText(renderer, titleX, titleY, title, titleColor, 4);
+
+    const std::string options[2] = {"TURN-BASED", "FREE-FOR-ALL"};
+    const std::string descriptions[2] = {
+        "PLAYERS TAKE TURNS",
+        "BOTH PLAYERS SHOOT AT SAME TIME"
+    };
+
+    for (int i = 0; i < 2; i++) {
+        SDL_Color optionColor = (state.menuSelection == i) ? selectedColor : normalColor;
+        SDL_Color descColor = (state.menuSelection == i) ? titleColor : SDL_Color{150, 150, 150, 255};
+
+        int optionWidth = measureText(options[i], 3);
+        int descWidth = measureText(descriptions[i], 2);
+        int optionX = (LOGICAL_WIDTH - optionWidth) / 2;
+        int descX = (LOGICAL_WIDTH - descWidth) / 2;
+        int optionY = 220 + i * 50;
+        int descY = optionY + 25;
+
+        if (state.menuSelection == i) {
+            SDL_SetRenderDrawColor(renderer, 50, 50, 100, 180);
+            SDL_Rect selectionBg = {optionX - 8, optionY - 4, optionWidth + 16, 40};
+            SDL_RenderFillRect(renderer, &selectionBg);
+        }
+
+        drawText(renderer, optionX, optionY, options[i], optionColor, 3);
+        drawText(renderer, descX, descY, descriptions[i], descColor, 2);
+    }
+
+    SDL_Color instructColor{ 150, 150, 150, 255 };
+    const std::string instruct = "W/S TO SELECT, SPACE TO START";
+    int instructWidth = measureText(instruct, 2);
+    int instructX = (LOGICAL_WIDTH - instructWidth) / 2;
+    drawText(renderer, instructX, 350, instruct, instructColor, 2);
+}
+
+void drawPauseMenu(SDL_Renderer* renderer, const GameState& state) {
+    // Draw semi-transparent overlay over the game
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 180);
+    SDL_Rect overlay = {0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT};
+    SDL_RenderFillRect(renderer, &overlay);
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+
+    // Pause menu title
+    const std::string title = "GAME PAUSED";
+    SDL_Color titleColor{255, 255, 255, 255};
+    int titlePixelSize = 4;
+    int titleWidth = measureText(title, titlePixelSize);
+    int titleX = (LOGICAL_WIDTH - titleWidth) / 2;
+    int titleY = 120;
+    drawText(renderer, titleX, titleY, title, titleColor, titlePixelSize);
+
+    // Menu options
+    const std::string options[] = {"Continue", "Quit Game"};
+    SDL_Color normalColor{200, 200, 200, 255};
+    SDL_Color selectedColor{255, 255, 100, 255};
+
+    for (int i = 0; i < 2; i++) {
+        SDL_Color optionColor = (state.pauseMenuSelection == i) ? selectedColor : normalColor;
+
+        int optionWidth = measureText(options[i], 3);
+        int optionX = (LOGICAL_WIDTH - optionWidth) / 2;
+        int optionY = 190 + i * 50;
+
+        if (state.pauseMenuSelection == i) {
+            SDL_SetRenderDrawColor(renderer, 50, 50, 100, 180);
+            SDL_Rect selectionBg = {optionX - 10, optionY - 6, optionWidth + 20, 35};
+            SDL_RenderFillRect(renderer, &selectionBg);
+        }
+
+        drawText(renderer, optionX, optionY, options[i], optionColor, 3);
+    }
+
+    // Instructions
+    SDL_Color instructColor{150, 150, 150, 255};
+    const std::string instruct1 = "W/S TO SELECT, SPACE TO CHOOSE";
+    const std::string instruct2 = "ESC TO CONTINUE";
+
+    int instruct1Width = measureText(instruct1, 2);
+    int instruct2Width = measureText(instruct2, 2);
+    int instruct1X = (LOGICAL_WIDTH - instruct1Width) / 2;
+    int instruct2X = (LOGICAL_WIDTH - instruct2Width) / 2;
+
+    drawText(renderer, instruct1X, 320, instruct1, instructColor, 2);
+    drawText(renderer, instruct2X, 340, instruct2, instructColor, 2);
+}
+
 void positionTankOnTerrain(Tank& tank, const std::vector<int>& terrain) {
     float centerX = tank.rect.x + tank.rect.w * 0.5f;
     float surfaceY = terrainHeightAt(terrain, centerX);
@@ -1645,48 +2043,71 @@ float calculateOptimalAngle(const Tank& botTank, const Tank& targetTank, float p
 
     float dx = targetX - botX;
     float dy = targetY - botY;
-    float distance = std::sqrt(dx * dx + dy * dy);
 
-    // Physics-based calculation for optimal trajectory
+    // Improved physics-based calculation for optimal trajectory
     const float gravity = GRAVITY;
     float velocity = power;
     float velocitySq = velocity * velocity;
 
-    // Calculate optimal angle using ballistic formula
-    // angle = 0.5 * arcsin((g * distance) / velocity^2)
-    float denominator = velocitySq;
-    if (denominator <= 0.0f) return 45.0f;
+    // Use proper ballistic formula: angle = 0.5 * arcsin((g * range) / v^2) + height compensation
+    float range = std::abs(dx);
+    if (velocitySq <= 0.0f) return 45.0f;
 
-    float sinValue = (gravity * std::abs(dx)) / denominator;
+    // Calculate base angle for flat trajectory
+    float discriminant = velocitySq * velocitySq - gravity * (gravity * range * range + 2.0f * velocitySq * dy);
 
-    // Add height compensation
-    if (dy < 0) { // Target is higher
-        sinValue *= 0.9f; // Aim slightly higher
-    } else { // Target is lower
-        sinValue *= 1.1f; // Aim slightly lower
+    if (discriminant < 0.0f) {
+        // Target unreachable with this power, use 45 degrees
+        return 45.0f;
     }
 
-    sinValue = std::clamp(sinValue, -1.0f, 1.0f);
-    float angle = std::asin(sinValue) * 0.5f * (180.0f / M_PI);
+    // Use the lower angle solution for more direct shot
+    float angle1 = std::atan((velocitySq - std::sqrt(discriminant)) / (gravity * range));
+    float angle2 = std::atan((velocitySq + std::sqrt(discriminant)) / (gravity * range));
 
-    // Add some randomness for realistic gameplay
-    float noise = randomFloat(-3.0f, 3.0f);
-    angle += noise;
+    // Choose the angle that's within turret limits
+    float angleDeg1 = angle1 * (180.0f / M_PI);
+    float angleDeg2 = angle2 * (180.0f / M_PI);
 
-    return std::clamp(angle, 5.0f, MAX_TURRET_SWING - 5.0f);
+    float finalAngle = (angleDeg1 >= 0 && angleDeg1 <= MAX_TURRET_SWING) ? angleDeg1 : angleDeg2;
+
+    // If facing left, angles are measured differently
+    if (!botTank.facingRight) {
+        finalAngle = 180.0f - finalAngle;
+    }
+
+    return std::clamp(finalAngle, 5.0f, MAX_TURRET_SWING - 5.0f);
 }
 
 float calculateOptimalPower(const Tank& botTank, const Tank& targetTank) {
     float botX = botTank.rect.x + botTank.rect.w * 0.5f;
     float targetX = targetTank.rect.x + targetTank.rect.w * 0.5f;
-    float distance = std::abs(targetX - botX);
+    float botY = botTank.rect.y + botTank.rect.h * 0.5f;
+    float targetY = targetTank.rect.y + targetTank.rect.h * 0.5f;
 
-    // Base power calculation based on distance
-    float basePower = MIN_LAUNCH_SPEED + (distance / LOGICAL_WIDTH) * (MAX_LAUNCH_SPEED - MIN_LAUNCH_SPEED);
+    float dx = targetX - botX;
+    float dy = targetY - botY;
+    float range = std::abs(dx);
 
-    // Add some randomness
-    float noise = randomFloat(-15.0f, 15.0f);
-    basePower += noise;
+    // Physics-based power calculation
+    const float gravity = GRAVITY;
+    const float targetAngle = 45.0f; // Use 45 degrees as reference angle for power calculation
+    const float angleRad = targetAngle * (M_PI / 180.0f);
+
+    // Calculate required velocity using ballistic formula
+    // v = sqrt(g * range / sin(2 * angle)) for flat trajectory
+    // Add height compensation for dy
+    float basePower = std::sqrt(gravity * range / std::sin(2.0f * angleRad));
+
+    // Height compensation
+    if (dy != 0) {
+        // Adjust power based on height difference
+        float heightFactor = 1.0f + (dy / range) * 0.5f;
+        basePower *= heightFactor;
+    }
+
+    // Ensure power is within reasonable bounds
+    basePower = std::clamp(basePower, MIN_LAUNCH_SPEED * 0.8f, MAX_LAUNCH_SPEED * 1.2f);
 
     return std::clamp(basePower, MIN_LAUNCH_SPEED, MAX_LAUNCH_SPEED);
 }
@@ -1722,9 +2143,33 @@ void updateBotAI(GameState& state, float dt) {
 
     // Bot thinking phase (1-3 seconds)
     if (state.botThinkTimer < randomFloat(1.0f, 3.0f) && !state.botReadyToFire) {
-        // Calculate targets during thinking phase
+        // Calculate targets during thinking phase with difficulty-based accuracy
         state.botTargetPower = calculateOptimalPower(bot, target);
         state.botTargetAngle = calculateOptimalAngle(bot, target, state.botTargetPower);
+
+        // Add inaccuracy based on difficulty to achieve target hit rates
+        float angleError = 0.0f;
+        float powerError = 0.0f;
+        switch (state.difficulty) {
+            case Difficulty::Easy:
+                // Target: 45% hit rate - moderate errors
+                angleError = randomFloat(-4.0f, 4.0f);
+                powerError = randomFloat(-15.0f, 15.0f);
+                break;
+            case Difficulty::Medium:
+                // Target: 60% hit rate - smaller errors
+                angleError = randomFloat(-2.0f, 2.0f);
+                powerError = randomFloat(-8.0f, 8.0f);
+                break;
+            case Difficulty::Hard:
+                // Target: 90%+ hit rate - minimal errors
+                angleError = randomFloat(-0.3f, 0.3f);
+                powerError = randomFloat(-2.0f, 2.0f);
+                break;
+        }
+
+        state.botTargetAngle = std::clamp(state.botTargetAngle + angleError, 0.0f, MAX_TURRET_SWING);
+        state.botTargetPower = std::clamp(state.botTargetPower + powerError, MIN_LAUNCH_SPEED, MAX_LAUNCH_SPEED);
         state.botTargetAmmo = chooseBotAmmo(state);
         return;
     }
@@ -1757,6 +2202,42 @@ void updateBotAI(GameState& state, float dt) {
     // Switch to target ammo
     if (bot.selected != state.botTargetAmmo) {
         bot.selected = state.botTargetAmmo;
+    }
+
+    // Bot force field activation logic
+    if (bot.forceFieldAvailable && !bot.forceFieldActive) {
+        // Check if player has projectiles in the air that might hit the bot
+        bool incomingProjectile = false;
+        for (const auto& proj : state.projectiles) {
+            if (proj.alive && proj.owner != bot.id) {
+                // Simple check: if projectile is moving toward bot's general area
+                float botCenterX = bot.rect.x + bot.rect.w * 0.5f;
+                float distToBot = std::abs(proj.position.x - botCenterX);
+                if (distToBot < 100.0f && proj.velocity.y > 0) { // Coming down near bot
+                    incomingProjectile = true;
+                    break;
+                }
+            }
+        }
+
+        // Activate shield based on difficulty and situation
+        float activationChance = 0.0f;
+        switch (state.difficulty) {
+            case Difficulty::Easy:
+                activationChance = incomingProjectile ? 0.3f : 0.1f;
+                break;
+            case Difficulty::Medium:
+                activationChance = incomingProjectile ? 0.6f : 0.2f;
+                break;
+            case Difficulty::Hard:
+                activationChance = incomingProjectile ? 0.9f : 0.3f;
+                break;
+        }
+
+        if (randomFloat(0.0f, 1.0f) < activationChance) {
+            bot.forceFieldActive = true;
+            bot.forceFieldAvailable = false;
+        }
     }
 
     // Fire when ready and settings are close to targets
@@ -1815,6 +2296,16 @@ void resetMatch(GameState& state) {
 
     state.player1.exploding = false;
     state.player2.exploding = false;
+
+    // Reset force field states
+    state.player1.forceFieldActive = false;
+    state.player1.forceFieldAvailable = true;
+    state.player1.forceFieldKeyHeld = false;
+    state.player1.shotsFired = 0;
+    state.player2.forceFieldActive = false;
+    state.player2.forceFieldAvailable = true;
+    state.player2.forceFieldKeyHeld = false;
+    state.player2.shotsFired = 0;
 
     // Initialize turn-based system
     state.currentPlayer = 1;  // Player 1 starts
@@ -1912,6 +2403,7 @@ int main(int argc, char** argv) {
     state.player1.powerDown = SDL_SCANCODE_S;
     state.player1.fire = SDL_SCANCODE_SPACE;
     state.player1.nextAmmo = SDL_SCANCODE_E;
+    state.player1.activateForceField = SDL_SCANCODE_R;
 
     state.player2.id = 2;
     state.player2.facingRight = false;
@@ -1921,6 +2413,7 @@ int main(int argc, char** argv) {
     state.player2.powerDown = SDL_SCANCODE_L;
     state.player2.fire = SDL_SCANCODE_RETURN;
     state.player2.nextAmmo = SDL_SCANCODE_P;
+    state.player2.activateForceField = SDL_SCANCODE_U;
 
     resetMatch(state);
 
@@ -1935,18 +2428,86 @@ int main(int argc, char** argv) {
             }
 
             // Handle menu input
-            if (state.currentScreen == GameScreen::Menu && evt.type == SDL_KEYDOWN) {
-                if (evt.key.keysym.scancode == SDL_SCANCODE_W || evt.key.keysym.scancode == SDL_SCANCODE_UP) {
-                    state.menuSelection = (state.menuSelection == 0) ? 1 : 0;
-                }
-                if (evt.key.keysym.scancode == SDL_SCANCODE_S || evt.key.keysym.scancode == SDL_SCANCODE_DOWN) {
-                    state.menuSelection = (state.menuSelection == 1) ? 0 : 1;
-                }
-                if (evt.key.keysym.scancode == SDL_SCANCODE_SPACE || evt.key.keysym.scancode == SDL_SCANCODE_RETURN) {
-                    // Start game with selected mode
-                    state.gameMode = (state.menuSelection == 0) ? GameMode::OnePlayer : GameMode::TwoPlayer;
-                    state.currentScreen = GameScreen::Playing;
-                    resetMatch(state);
+            if (evt.type == SDL_KEYDOWN) {
+                if (state.currentScreen == GameScreen::Menu) {
+                    if (evt.key.keysym.scancode == SDL_SCANCODE_W || evt.key.keysym.scancode == SDL_SCANCODE_UP) {
+                        state.menuSelection = (state.menuSelection == 0) ? 1 : 0;
+                    }
+                    if (evt.key.keysym.scancode == SDL_SCANCODE_S || evt.key.keysym.scancode == SDL_SCANCODE_DOWN) {
+                        state.menuSelection = (state.menuSelection == 1) ? 0 : 1;
+                    }
+                    if (evt.key.keysym.scancode == SDL_SCANCODE_SPACE || evt.key.keysym.scancode == SDL_SCANCODE_RETURN) {
+                        state.gameMode = (state.menuSelection == 0) ? GameMode::OnePlayer : GameMode::TwoPlayer;
+                        if (state.gameMode == GameMode::OnePlayer) {
+                            // Single player mode - go to difficulty selection for bot
+                            state.currentScreen = GameScreen::DifficultySelect;
+                            state.menuSelection = 1; // Default to Medium
+                        } else {
+                            // Two player mode - go directly to mode selection
+                            state.currentScreen = GameScreen::ModeSelect;
+                            state.menuSelection = 0; // Default to Turn-based
+                        }
+                    }
+                } else if (state.currentScreen == GameScreen::DifficultySelect) {
+                    if (evt.key.keysym.scancode == SDL_SCANCODE_W || evt.key.keysym.scancode == SDL_SCANCODE_UP) {
+                        state.menuSelection = (state.menuSelection + 2) % 3;
+                    }
+                    if (evt.key.keysym.scancode == SDL_SCANCODE_S || evt.key.keysym.scancode == SDL_SCANCODE_DOWN) {
+                        state.menuSelection = (state.menuSelection + 1) % 3;
+                    }
+                    if (evt.key.keysym.scancode == SDL_SCANCODE_SPACE || evt.key.keysym.scancode == SDL_SCANCODE_RETURN) {
+                        state.difficulty = static_cast<Difficulty>(state.menuSelection);
+                        if (state.gameMode == GameMode::OnePlayer) {
+                            // Single player - start game with bot
+                            state.currentScreen = GameScreen::Playing;
+                            state.isPlayer2Bot = true;
+                            state.playMode = PlayMode::TurnBased; // Single player is always turn-based
+                            resetMatch(state);
+                        } else {
+                            // Two player - this shouldn't happen since 2P goes directly to mode select
+                            state.currentScreen = GameScreen::ModeSelect;
+                            state.menuSelection = 0; // Default to Turn-based
+                        }
+                    }
+                } else if (state.currentScreen == GameScreen::ModeSelect) {
+                    if (evt.key.keysym.scancode == SDL_SCANCODE_W || evt.key.keysym.scancode == SDL_SCANCODE_UP) {
+                        state.menuSelection = (state.menuSelection == 0) ? 1 : 0;
+                    }
+                    if (evt.key.keysym.scancode == SDL_SCANCODE_S || evt.key.keysym.scancode == SDL_SCANCODE_DOWN) {
+                        state.menuSelection = (state.menuSelection == 1) ? 0 : 1;
+                    }
+                    if (evt.key.keysym.scancode == SDL_SCANCODE_SPACE || evt.key.keysym.scancode == SDL_SCANCODE_RETURN) {
+                        state.playMode = (state.menuSelection == 0) ? PlayMode::TurnBased : PlayMode::FreeForAll;
+                        state.currentScreen = GameScreen::Playing;
+                        state.isPlayer2Bot = false; // 2-player mode, no bot
+                        resetMatch(state);
+                    }
+                } else if (state.currentScreen == GameScreen::Playing) {
+                    if (evt.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
+                        state.currentScreen = GameScreen::Paused;
+                        state.pauseMenuSelection = 0; // Default to Continue
+                    }
+                } else if (state.currentScreen == GameScreen::Paused) {
+                    if (evt.key.keysym.scancode == SDL_SCANCODE_W || evt.key.keysym.scancode == SDL_SCANCODE_UP) {
+                        state.pauseMenuSelection = (state.pauseMenuSelection == 0) ? 1 : 0;
+                    }
+                    if (evt.key.keysym.scancode == SDL_SCANCODE_S || evt.key.keysym.scancode == SDL_SCANCODE_DOWN) {
+                        state.pauseMenuSelection = (state.pauseMenuSelection == 1) ? 0 : 1;
+                    }
+                    if (evt.key.keysym.scancode == SDL_SCANCODE_SPACE || evt.key.keysym.scancode == SDL_SCANCODE_RETURN) {
+                        if (state.pauseMenuSelection == 0) {
+                            // Continue
+                            state.currentScreen = GameScreen::Playing;
+                        } else {
+                            // Quit Game
+                            state.currentScreen = GameScreen::Menu;
+                            state.menuSelection = 0; // Reset main menu
+                        }
+                    }
+                    if (evt.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
+                        // Escape in pause menu also continues the game
+                        state.currentScreen = GameScreen::Playing;
+                    }
                 }
             }
         }
@@ -1959,9 +2520,17 @@ int main(int argc, char** argv) {
 
         if (state.currentScreen == GameScreen::Playing) {
             if (!state.matchOver) {
-                // Update tanks with turn-based logic
-                bool player1CanControl = state.currentPlayer == 1;
-                bool player2CanControl = state.currentPlayer == 2 && !state.isPlayer2Bot;
+                // Update tanks based on play mode
+                bool player1CanControl, player2CanControl;
+                if (state.playMode == PlayMode::FreeForAll) {
+                    // In free-for-all, both players can control their tanks
+                    player1CanControl = true;
+                    player2CanControl = !state.isPlayer2Bot; // Bot still controlled by AI
+                } else {
+                    // Turn-based logic
+                    player1CanControl = state.currentPlayer == 1;
+                    player2CanControl = state.currentPlayer == 2 && !state.isPlayer2Bot;
+                }
 
                 updateTank(state.player1, keys, dt, state.projectiles, player1CanControl, state);
                 updateTank(state.player2, keys, dt, state.projectiles, player2CanControl, state);
@@ -1972,8 +2541,8 @@ int main(int argc, char** argv) {
                     updateBotAI(state, dt);
                 }
 
-                // Handle turn switching
-                if (state.waitingForTurnEnd) {
+                // Handle turn switching (only in turn-based mode)
+                if (state.playMode == PlayMode::TurnBased && state.waitingForTurnEnd) {
                     state.turnEndTimer -= dt;
                     // Check if all projectiles have finished (no active projectiles or napalm)
                     bool allProjectilesFinished = state.projectiles.empty() ||
@@ -2003,6 +2572,11 @@ int main(int argc, char** argv) {
         updateNapalmPatches(state, dt);
         applyGravityToTank(state.player1, state.terrainHeights, dt);
         applyGravityToTank(state.player2, state.terrainHeights, dt);
+
+        // Apply gravity to towers
+        for (auto& scenery : state.scenery) {
+            applyGravityToScenery(scenery, state.terrainHeights, dt);
+        }
         if (state.player1.exploding) {
             state.player1.explosionTimer -= dt;
             if (state.player1.explosionTimer <= 0.0f) {
@@ -2018,7 +2592,11 @@ int main(int argc, char** argv) {
 
         if (state.currentScreen == GameScreen::Menu) {
             drawMenu(renderer, state);
-        } else {
+        } else if (state.currentScreen == GameScreen::DifficultySelect) {
+            drawDifficultyMenu(renderer, state);
+        } else if (state.currentScreen == GameScreen::ModeSelect) {
+            drawModeMenu(renderer, state);
+        } else if (state.currentScreen == GameScreen::Playing || state.currentScreen == GameScreen::Paused) {
             drawBackground(renderer);
             drawTerrain(renderer, state.terrainHeights, state.terrainSubstrate);
             drawScenery(renderer, state.scenery);
@@ -2027,10 +2605,24 @@ int main(int argc, char** argv) {
             drawExplosions(renderer, state.explosions);
             drawTank(renderer, state.player1, assets, true);
             drawTank(renderer, state.player2, assets, false);
+
+            // Draw force fields
+            if (state.player1.forceFieldActive) {
+                drawForceField(renderer, state.player1);
+            }
+            if (state.player2.forceFieldActive) {
+                drawForceField(renderer, state.player2);
+            }
+
             drawUI(renderer, state);
 
             if (state.matchOver) {
                 drawBanner(renderer, state.winner);
+            }
+
+            // Draw pause menu overlay if paused
+            if (state.currentScreen == GameScreen::Paused) {
+                drawPauseMenu(renderer, state);
             }
         }
 
