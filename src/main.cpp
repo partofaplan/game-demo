@@ -84,7 +84,7 @@ enum class Difficulty { Easy, Medium, Hard };
 
 enum class PlayMode { TurnBased, FreeForAll };
 
-enum class GameScreen { Menu, DifficultySelect, ModeSelect, Playing, Paused };
+enum class GameScreen { Menu, DifficultySelect, ModeSelect, Playing, Paused, Help };
 
 std::mt19937& rng() {
     static std::mt19937 engine{ std::random_device{}() };
@@ -1058,7 +1058,10 @@ constexpr GlyphRows GLYPH_L{ 0b100000, 0b100000, 0b100000, 0b100000, 0b100000, 0
 constexpr GlyphRows GLYPH_U{ 0b100001, 0b100001, 0b100001, 0b100001, 0b100001, 0b100001, 0b011110 };
 constexpr GlyphRows GLYPH_Y{ 0b100001, 0b010010, 0b010010, 0b001100, 0b001100, 0b001100, 0b001100 };
 constexpr GlyphRows GLYPH_W{ 0b100001, 0b100001, 0b100001, 0b100101, 0b101101, 0b110011, 0b100001 };
+constexpr GlyphRows GLYPH_X{ 0b100001, 0b010010, 0b001100, 0b001100, 0b010010, 0b100001, 0b100001 };
+constexpr GlyphRows GLYPH_Z{ 0b111111, 0b000010, 0b000100, 0b001000, 0b010000, 0b100000, 0b111111 };
 constexpr GlyphRows GLYPH_I{ 0b111111, 0b001100, 0b001100, 0b001100, 0b001100, 0b001100, 0b111111 };
+constexpr GlyphRows GLYPH_J{ 0b000001, 0b000001, 0b000001, 0b000001, 0b100001, 0b100001, 0b011110 };
 constexpr GlyphRows GLYPH_N{ 0b100001, 0b110001, 0b101001, 0b100101, 0b100011, 0b100001, 0b100001 };
 constexpr GlyphRows GLYPH_S{ 0b011111, 0b100000, 0b100000, 0b011110, 0b000001, 0b000001, 0b111110 };
 constexpr GlyphRows GLYPH_H{ 0b100001, 0b100001, 0b100001, 0b111111, 0b100001, 0b100001, 0b100001 };
@@ -1081,6 +1084,7 @@ const GlyphRows* glyphFor(char c) {
         case 'G': return &GLYPH_G;
         case 'H': return &GLYPH_H;
         case 'I': return &GLYPH_I;
+        case 'J': return &GLYPH_J;
         case 'K': return &GLYPH_K;
         case 'L': return &GLYPH_L;
         case 'M': return &GLYPH_M;
@@ -1094,7 +1098,9 @@ const GlyphRows* glyphFor(char c) {
         case 'U': return &GLYPH_U;
         case 'V': return &GLYPH_V;
         case 'W': return &GLYPH_W;
+        case 'X': return &GLYPH_X;
         case 'Y': return &GLYPH_Y;
+        case 'Z': return &GLYPH_Z;
         case '1': return &GLYPH_ONE;
         case '2': return &GLYPH_TWO;
         case ' ': return &GLYPH_SPACE;
@@ -1123,8 +1129,8 @@ int drawGlyph(SDL_Renderer* renderer, int x, int y, SDL_Color color, const Glyph
 
 int drawText(SDL_Renderer* renderer, int x, int y, const std::string& text, SDL_Color color, int pixelSize = DEFAULT_GLYPH_PIXEL) {
     int cursor = x;
-    int glyphSpacing = pixelSize + 1;
-    int wordSpacing = pixelSize * 2;
+    int glyphSpacing = pixelSize + 2;  // Increased from pixelSize + 1
+    int wordSpacing = pixelSize * 3;   // Increased from pixelSize * 2
     for (char c : text) {
         if (c == ' ') {
             cursor += wordSpacing;
@@ -1143,8 +1149,8 @@ int drawText(SDL_Renderer* renderer, int x, int y, const std::string& text, SDL_
 
 int measureText(const std::string& text, int pixelSize = DEFAULT_GLYPH_PIXEL) {
     int width = 0;
-    int glyphSpacing = pixelSize + 1;
-    int wordSpacing = pixelSize * 2;
+    int glyphSpacing = pixelSize + 2;  // Increased from pixelSize + 1
+    int wordSpacing = pixelSize * 3;   // Increased from pixelSize * 2
     for (char c : text) {
         if (c == ' ') {
             width += wordSpacing;
@@ -1822,38 +1828,32 @@ void drawMenu(SDL_Renderer* renderer, const GameState& state) {
     SDL_Color normalColor{ 200, 200, 200, 255 };
     SDL_Color selectedColor{ 255, 255, 100, 255 };
 
-    const std::string option1 = "1 PLAYER";
-    const std::string option2 = "2 PLAYER";
+    const std::string options[] = {"1 PLAYER", "2 PLAYER", "HELP"};
+    int optionWidths[3];
+    int optionX[3];
+    int optionY[3];
 
-    int option1Width = measureText(option1, 3);
-    int option2Width = measureText(option2, 3);
-
-    // Ensure the centering calculation is correct
-    int option1X = (LOGICAL_WIDTH - option1Width) / 2;
-    int option2X = (LOGICAL_WIDTH - option2Width) / 2;
-
-    // Safety clamp to prevent offscreen positioning
-    option1X = std::max(10, std::min(option1X, LOGICAL_WIDTH - option1Width - 10));
-    option2X = std::max(10, std::min(option2X, LOGICAL_WIDTH - option2Width - 10));
-    int option1Y = 240;  // Moved down to accommodate banner
-    int option2Y = 280;
+    // Calculate positions for all options
+    for (int i = 0; i < 3; i++) {
+        optionWidths[i] = measureText(options[i], 3);
+        optionX[i] = (LOGICAL_WIDTH - optionWidths[i]) / 2;
+        optionX[i] = std::max(10, std::min(optionX[i], LOGICAL_WIDTH - optionWidths[i] - 10));
+        optionY[i] = 230 + i * 35;  // Tighter spacing to fit 3 options
+    }
 
     // Draw selection background
-    int selectionY = (state.menuSelection == 0) ? option1Y : option2Y;
-    int selectionWidth = (state.menuSelection == 0) ? option1Width : option2Width;
-    int selectionX = (state.menuSelection == 0) ? option1X : option2X;
-
+    int selectionIdx = state.menuSelection;
     SDL_SetRenderDrawColor(renderer, 50, 50, 100, 180);
     int selectionHeight = GLYPH_HEIGHT * 3; // Text is pixel size 3
-    SDL_Rect selectionBg = {selectionX - 8, selectionY - 4, selectionWidth + 16, selectionHeight + 8};
+    SDL_Rect selectionBg = {optionX[selectionIdx] - 8, optionY[selectionIdx] - 4,
+                           optionWidths[selectionIdx] + 16, selectionHeight + 8};
     SDL_RenderFillRect(renderer, &selectionBg);
 
     // Draw options
-    SDL_Color option1Color = (state.menuSelection == 0) ? selectedColor : normalColor;
-    SDL_Color option2Color = (state.menuSelection == 1) ? selectedColor : normalColor;
-
-    drawText(renderer, option1X, option1Y, option1, option1Color, 3);
-    drawText(renderer, option2X, option2Y, option2, option2Color, 3);
+    for (int i = 0; i < 3; i++) {
+        SDL_Color optionColor = (state.menuSelection == i) ? selectedColor : normalColor;
+        drawText(renderer, optionX[i], optionY[i], options[i], optionColor, 3);
+    }
 
     // Instructions
     SDL_Color instructColor{ 150, 150, 150, 255 };
@@ -2024,6 +2024,89 @@ void drawPauseMenu(SDL_Renderer* renderer, const GameState& state) {
 
     drawText(renderer, instruct1X, 320, instruct1, instructColor, 2);
     drawText(renderer, instruct2X, 340, instruct2, instructColor, 2);
+}
+
+void drawHelpMenu(SDL_Renderer* renderer, const GameState& state) {
+    drawBackground(renderer);
+
+    // Title
+    const std::string title = "CONTROLS HELP";
+    SDL_Color titleColor{255, 255, 100, 255};
+    int titlePixelSize = 3;  // Reduced from 4
+    int titleWidth = measureText(title, titlePixelSize);
+    int titleX = (LOGICAL_WIDTH - titleWidth) / 2;
+    int titleY = 15;  // Moved up slightly
+    drawText(renderer, titleX, titleY, title, titleColor, titlePixelSize);
+
+    SDL_Color headingColor{255, 200, 100, 255};
+    SDL_Color normalColor{200, 200, 200, 255};
+    SDL_Color keyColor{100, 255, 100, 255};
+
+    int yPos = 50;  // Start higher
+    int lineSpacing = 18;  // Increased from 14
+    int sectionSpacing = 8;  // Extra space between sections
+
+    // 1 Player Controls
+    drawText(renderer, 15, yPos, "1 PLAYER MODE:", headingColor, 2);
+    yPos += lineSpacing + sectionSpacing;
+
+    drawText(renderer, 25, yPos, "Q / A", keyColor, 1);  // Reduced font size and added spaces
+    drawText(renderer, 85, yPos, "- AIM TURRET UP / DOWN", normalColor, 1);
+    yPos += lineSpacing;
+
+    drawText(renderer, 25, yPos, "W / S", keyColor, 1);
+    drawText(renderer, 85, yPos, "- ADJUST POWER", normalColor, 1);
+    yPos += lineSpacing;
+
+    drawText(renderer, 25, yPos, "SPACE", keyColor, 1);
+    drawText(renderer, 85, yPos, "- FIRE WEAPON", normalColor, 1);
+    yPos += lineSpacing;
+
+    drawText(renderer, 25, yPos, "E", keyColor, 1);
+    drawText(renderer, 85, yPos, "- NEXT AMMO TYPE", normalColor, 1);
+    yPos += lineSpacing;
+
+    drawText(renderer, 25, yPos, "R", keyColor, 1);
+    drawText(renderer, 85, yPos, "- ACTIVATE FORCE FIELD", normalColor, 1);
+    yPos += lineSpacing + sectionSpacing + 5;
+
+    // 2 Player Controls
+    drawText(renderer, 15, yPos, "2 PLAYER MODE:", headingColor, 2);
+    yPos += lineSpacing + sectionSpacing;
+
+    drawText(renderer, 25, yPos, "PLAYER 1:", keyColor, 1);
+    drawText(renderer, 110, yPos, "Q / A   W / S   SPACE   E   R", normalColor, 1);
+    yPos += lineSpacing;
+
+    drawText(renderer, 25, yPos, "PLAYER 2:", keyColor, 1);
+    drawText(renderer, 110, yPos, "I / K   O / L   J   U", normalColor, 1);
+    yPos += lineSpacing + sectionSpacing + 5;
+
+    // Gameplay Tips
+    drawText(renderer, 15, yPos, "GAMEPLAY TIPS:", headingColor, 2);
+    yPos += lineSpacing + sectionSpacing;
+
+    drawText(renderer, 25, yPos, "- DESTROY ENEMY TANK TO WIN", normalColor, 1);
+    yPos += lineSpacing;
+
+    drawText(renderer, 25, yPos, "- TERRAIN ERODES FROM EXPLOSIONS", normalColor, 1);
+    yPos += lineSpacing;
+
+    drawText(renderer, 25, yPos, "- TOWERS FALL WHEN TERRAIN ERODES", normalColor, 1);
+    yPos += lineSpacing;
+
+    drawText(renderer, 25, yPos, "- FORCE FIELD BOUNCES PROJECTILES", normalColor, 1);
+    yPos += lineSpacing;
+
+    drawText(renderer, 25, yPos, "- DIRTGUN BUILDS TERRAIN", normalColor, 1);
+    yPos += lineSpacing + sectionSpacing + 10;
+
+    // Instructions to return
+    SDL_Color instructColor{150, 150, 150, 255};
+    const std::string instruct = "PRESS ESC OR SPACE TO RETURN";
+    int instructWidth = measureText(instruct, 1);  // Reduced font size
+    int instructX = (LOGICAL_WIDTH - instructWidth) / 2;
+    drawText(renderer, instructX, 360, instruct, instructColor, 1);
 }
 
 void positionTankOnTerrain(Tank& tank, const std::vector<int>& terrain) {
@@ -2431,21 +2514,25 @@ int main(int argc, char** argv) {
             if (evt.type == SDL_KEYDOWN) {
                 if (state.currentScreen == GameScreen::Menu) {
                     if (evt.key.keysym.scancode == SDL_SCANCODE_W || evt.key.keysym.scancode == SDL_SCANCODE_UP) {
-                        state.menuSelection = (state.menuSelection == 0) ? 1 : 0;
+                        state.menuSelection = (state.menuSelection + 2) % 3; // Go up: 0->2, 1->0, 2->1
                     }
                     if (evt.key.keysym.scancode == SDL_SCANCODE_S || evt.key.keysym.scancode == SDL_SCANCODE_DOWN) {
-                        state.menuSelection = (state.menuSelection == 1) ? 0 : 1;
+                        state.menuSelection = (state.menuSelection + 1) % 3; // Go down: 0->1, 1->2, 2->0
                     }
                     if (evt.key.keysym.scancode == SDL_SCANCODE_SPACE || evt.key.keysym.scancode == SDL_SCANCODE_RETURN) {
-                        state.gameMode = (state.menuSelection == 0) ? GameMode::OnePlayer : GameMode::TwoPlayer;
-                        if (state.gameMode == GameMode::OnePlayer) {
-                            // Single player mode - go to difficulty selection for bot
+                        if (state.menuSelection == 0) {
+                            // 1 Player
+                            state.gameMode = GameMode::OnePlayer;
                             state.currentScreen = GameScreen::DifficultySelect;
                             state.menuSelection = 1; // Default to Medium
-                        } else {
-                            // Two player mode - go directly to mode selection
+                        } else if (state.menuSelection == 1) {
+                            // 2 Player
+                            state.gameMode = GameMode::TwoPlayer;
                             state.currentScreen = GameScreen::ModeSelect;
                             state.menuSelection = 0; // Default to Turn-based
+                        } else if (state.menuSelection == 2) {
+                            // Help
+                            state.currentScreen = GameScreen::Help;
                         }
                     }
                 } else if (state.currentScreen == GameScreen::DifficultySelect) {
@@ -2507,6 +2594,14 @@ int main(int argc, char** argv) {
                     if (evt.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
                         // Escape in pause menu also continues the game
                         state.currentScreen = GameScreen::Playing;
+                    }
+                } else if (state.currentScreen == GameScreen::Help) {
+                    if (evt.key.keysym.scancode == SDL_SCANCODE_ESCAPE ||
+                        evt.key.keysym.scancode == SDL_SCANCODE_SPACE ||
+                        evt.key.keysym.scancode == SDL_SCANCODE_RETURN) {
+                        // Return to main menu
+                        state.currentScreen = GameScreen::Menu;
+                        state.menuSelection = 2; // Keep Help selected
                     }
                 }
             }
@@ -2596,6 +2691,8 @@ int main(int argc, char** argv) {
             drawDifficultyMenu(renderer, state);
         } else if (state.currentScreen == GameScreen::ModeSelect) {
             drawModeMenu(renderer, state);
+        } else if (state.currentScreen == GameScreen::Help) {
+            drawHelpMenu(renderer, state);
         } else if (state.currentScreen == GameScreen::Playing || state.currentScreen == GameScreen::Paused) {
             drawBackground(renderer);
             drawTerrain(renderer, state.terrainHeights, state.terrainSubstrate);
