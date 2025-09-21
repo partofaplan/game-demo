@@ -76,6 +76,10 @@ enum class ProjectileKind { Mortar, Cluster, ClusterShard, Napalm };
 
 enum class SceneryKind { Tower };
 
+enum class GameMode { OnePlayer, TwoPlayer };
+
+enum class GameScreen { Menu, Playing };
+
 std::mt19937& rng() {
     static std::mt19937 engine{ std::random_device{}() };
     return engine;
@@ -296,6 +300,25 @@ struct GameState {
     bool matchOver{false};
     int winner{0};
     float resetTimer{2.0f};
+
+    // Turn-based system
+    int currentPlayer{1};  // 1 or 2
+    bool waitingForTurnEnd{false};
+    float turnEndTimer{0.0f};
+    bool shotFired{false};
+
+    // Menu and game mode system
+    GameScreen currentScreen{GameScreen::Menu};
+    GameMode gameMode{GameMode::TwoPlayer};
+    int menuSelection{0};  // 0 = 1 Player, 1 = 2 Player
+
+    // Bot AI system
+    bool isPlayer2Bot{false};
+    float botThinkTimer{0.0f};
+    float botTargetAngle{45.0f};
+    float botTargetPower{DEFAULT_LAUNCH_SPEED};
+    ProjectileKind botTargetAmmo{ProjectileKind::Mortar};
+    bool botReadyToFire{false};
 };
 
 SDL_FRect makeTankRect(float x, float y) {
@@ -432,33 +455,43 @@ Projectile spawnProjectile(const Tank& tank) {
     return proj;
 }
 
-void updateTank(Tank& tank, const Uint8* keys, float dt, std::vector<Projectile>& projectiles) {
+void updateTank(Tank& tank, const Uint8* keys, float dt, std::vector<Projectile>& projectiles, bool isCurrentPlayer, GameState& state) {
     if (tank.reloadTimer > 0.0f) {
         tank.reloadTimer -= dt;
         if (tank.reloadTimer < 0.0f) tank.reloadTimer = 0.0f;
     }
 
-    if (keys[tank.aimUp]) tank.turretAngleDeg += TURRET_ROT_SPEED * dt;
-    if (keys[tank.aimDown]) tank.turretAngleDeg -= TURRET_ROT_SPEED * dt;
+    // Only allow input if it's this player's turn and not waiting for turn end
+    if (isCurrentPlayer && !state.waitingForTurnEnd) {
+        if (keys[tank.aimUp]) tank.turretAngleDeg += TURRET_ROT_SPEED * dt;
+        if (keys[tank.aimDown]) tank.turretAngleDeg -= TURRET_ROT_SPEED * dt;
 
-    tank.turretAngleDeg = std::clamp(tank.turretAngleDeg, 0.0f, MAX_TURRET_SWING);
+        tank.turretAngleDeg = std::clamp(tank.turretAngleDeg, 0.0f, MAX_TURRET_SWING);
 
-    if (keys[tank.powerUp])   tank.launchSpeed += POWER_ADJUST_RATE * dt;
-    if (keys[tank.powerDown]) tank.launchSpeed -= POWER_ADJUST_RATE * dt;
-    tank.launchSpeed = std::clamp(tank.launchSpeed, MIN_LAUNCH_SPEED, MAX_LAUNCH_SPEED);
+        if (keys[tank.powerUp])   tank.launchSpeed += POWER_ADJUST_RATE * dt;
+        if (keys[tank.powerDown]) tank.launchSpeed -= POWER_ADJUST_RATE * dt;
+        tank.launchSpeed = std::clamp(tank.launchSpeed, MIN_LAUNCH_SPEED, MAX_LAUNCH_SPEED);
 
-    if (keys[tank.nextAmmo]) {
-        if (!tank.ammoSwitchHeld) {
-            tank.selected = nextAmmoType(tank.selected);
-            tank.ammoSwitchHeld = true;
+        if (keys[tank.nextAmmo]) {
+            if (!tank.ammoSwitchHeld) {
+                tank.selected = nextAmmoType(tank.selected);
+                tank.ammoSwitchHeld = true;
+            }
+        } else {
+            tank.ammoSwitchHeld = false;
+        }
+
+        // Only allow firing if it's the player's turn and they haven't fired yet
+        if (keys[tank.fire] && tank.reloadTimer <= 0.0f && !state.shotFired) {
+            projectiles.push_back(spawnProjectile(tank));
+            tank.reloadTimer = RELOAD_TIME;
+            state.shotFired = true;
+            state.waitingForTurnEnd = true;
+            state.turnEndTimer = 3.0f; // Wait 3 seconds to see projectile impact before switching turns
         }
     } else {
+        // Reset ammo switch state for non-active players
         tank.ammoSwitchHeld = false;
-    }
-
-    if (keys[tank.fire] && tank.reloadTimer <= 0.0f) {
-        projectiles.push_back(spawnProjectile(tank));
-        tank.reloadTimer = RELOAD_TIME;
     }
 }
 
@@ -837,6 +870,7 @@ using GlyphRows = std::array<uint8_t, GLYPH_HEIGHT>;
 
 constexpr GlyphRows GLYPH_SPACE{ 0,0,0,0,0,0,0 };
 constexpr GlyphRows GLYPH_A{ 0b011110, 0b100001, 0b100001, 0b111111, 0b100001, 0b100001, 0b100001 };
+constexpr GlyphRows GLYPH_B{ 0b111110, 0b100001, 0b100001, 0b111110, 0b100001, 0b100001, 0b111110 };
 constexpr GlyphRows GLYPH_C{ 0b011110, 0b100001, 0b100000, 0b100000, 0b100000, 0b100001, 0b011110 };
 constexpr GlyphRows GLYPH_E{ 0b111111, 0b100000, 0b100000, 0b111110, 0b100000, 0b100000, 0b111111 };
 constexpr GlyphRows GLYPH_G{ 0b011110, 0b100001, 0b100000, 0b101111, 0b100001, 0b100001, 0b011110 };
@@ -853,31 +887,44 @@ constexpr GlyphRows GLYPH_W{ 0b100001, 0b100001, 0b100001, 0b100101, 0b101101, 0
 constexpr GlyphRows GLYPH_I{ 0b111111, 0b001100, 0b001100, 0b001100, 0b001100, 0b001100, 0b111111 };
 constexpr GlyphRows GLYPH_N{ 0b100001, 0b110001, 0b101001, 0b100101, 0b100011, 0b100001, 0b100001 };
 constexpr GlyphRows GLYPH_S{ 0b011111, 0b100000, 0b100000, 0b011110, 0b000001, 0b000001, 0b111110 };
+constexpr GlyphRows GLYPH_H{ 0b100001, 0b100001, 0b100001, 0b111111, 0b100001, 0b100001, 0b100001 };
+constexpr GlyphRows GLYPH_F{ 0b111111, 0b100000, 0b100000, 0b111110, 0b100000, 0b100000, 0b100000 };
+constexpr GlyphRows GLYPH_D{ 0b111110, 0b100001, 0b100001, 0b100001, 0b100001, 0b100001, 0b111110 };
+constexpr GlyphRows GLYPH_K{ 0b100001, 0b100010, 0b100100, 0b111000, 0b100100, 0b100010, 0b100001 };
+constexpr GlyphRows GLYPH_APOSTROPHE{ 0b001100, 0b001100, 0b011000, 0b000000, 0b000000, 0b000000, 0b000000 };
+constexpr GlyphRows GLYPH_HYPHEN{ 0b000000, 0b000000, 0b000000, 0b111110, 0b000000, 0b000000, 0b000000 };
 constexpr GlyphRows GLYPH_ONE{ 0b001100, 0b011100, 0b001100, 0b001100, 0b001100, 0b001100, 0b111111 };
 constexpr GlyphRows GLYPH_TWO{ 0b011110, 0b100001, 0b000001, 0b000110, 0b001100, 0b011000, 0b111111 };
 
 const GlyphRows* glyphFor(char c) {
     switch (c) {
         case 'A': return &GLYPH_A;
+        case 'B': return &GLYPH_B;
         case 'C': return &GLYPH_C;
+        case 'D': return &GLYPH_D;
         case 'E': return &GLYPH_E;
+        case 'F': return &GLYPH_F;
         case 'G': return &GLYPH_G;
-        case 'M': return &GLYPH_M;
-        case 'O': return &GLYPH_O;
-        case 'V': return &GLYPH_V;
-        case 'R': return &GLYPH_R;
-        case 'T': return &GLYPH_T;
-        case 'P': return &GLYPH_P;
-        case 'L': return &GLYPH_L;
-        case 'U': return &GLYPH_U;
-        case 'Y': return &GLYPH_Y;
-        case 'W': return &GLYPH_W;
+        case 'H': return &GLYPH_H;
         case 'I': return &GLYPH_I;
+        case 'K': return &GLYPH_K;
+        case 'L': return &GLYPH_L;
+        case 'M': return &GLYPH_M;
         case 'N': return &GLYPH_N;
+        case 'O': return &GLYPH_O;
+        case 'P': return &GLYPH_P;
+        case 'R': return &GLYPH_R;
         case 'S': return &GLYPH_S;
+        case 'T': return &GLYPH_T;
+        case 'U': return &GLYPH_U;
+        case 'V': return &GLYPH_V;
+        case 'W': return &GLYPH_W;
+        case 'Y': return &GLYPH_Y;
         case '1': return &GLYPH_ONE;
         case '2': return &GLYPH_TWO;
         case ' ': return &GLYPH_SPACE;
+        case '\'': return &GLYPH_APOSTROPHE;
+        case '-': return &GLYPH_HYPHEN;
         default:  return nullptr;
     }
 }
@@ -1022,31 +1069,185 @@ void drawTerrain(SDL_Renderer* renderer, const std::vector<int>& surface, const 
     }
 }
 
+void drawWatchtower(SDL_Renderer* renderer, const SDL_FRect& rect, float healthRatio) {
+    // Calculate watchtower proportions
+    float baseWidth = rect.w;
+    float topWidth = rect.w * 0.7f;
+    float towerHeight = rect.h * 0.75f;
+    float baseHeight = rect.h * 0.25f;
+
+    // Health-based color variations
+    Uint8 stoneR = static_cast<Uint8>(105 + 25 * healthRatio);
+    Uint8 stoneG = static_cast<Uint8>(100 + 20 * healthRatio);
+    Uint8 stoneB = static_cast<Uint8>(95 + 15 * healthRatio);
+
+    Uint8 woodR = static_cast<Uint8>(101 + 30 * healthRatio);
+    Uint8 woodG = static_cast<Uint8>(67 + 20 * healthRatio);
+    Uint8 woodB = static_cast<Uint8>(33 + 15 * healthRatio);
+
+    // 1. Stone foundation base (wider, shorter)
+    SDL_FRect foundation = {
+        rect.x - baseWidth * 0.1f,
+        rect.y + rect.h - baseHeight,
+        baseWidth * 1.2f,
+        baseHeight
+    };
+    SDL_SetRenderDrawColor(renderer, stoneR - 15, stoneG - 15, stoneB - 10, 255);
+    SDL_RenderFillRectF(renderer, &foundation);
+
+    // Foundation stone texture (horizontal lines)
+    SDL_SetRenderDrawColor(renderer, stoneR - 25, stoneG - 25, stoneB - 20, 255);
+    for (int i = 0; i < 3; ++i) {
+        int y = static_cast<int>(foundation.y + foundation.h * 0.25f * (i + 1));
+        SDL_RenderDrawLine(renderer, static_cast<int>(foundation.x), y,
+                          static_cast<int>(foundation.x + foundation.w), y);
+    }
+
+    // 2. Main tower body (tapered trapezoid)
+    float towerBottom = rect.y + baseHeight;
+    float towerTop = rect.y;
+    float leftBottom = rect.x;
+    float rightBottom = rect.x + baseWidth;
+    float leftTop = rect.x + (baseWidth - topWidth) * 0.5f;
+    float rightTop = leftTop + topWidth;
+
+    // Draw tower as trapezoid using triangles
+    SDL_SetRenderDrawColor(renderer, stoneR, stoneG, stoneB, 255);
+
+    // Left triangle
+    SDL_Vertex leftTriangle[3] = {
+        {{leftBottom, towerBottom + rect.h - baseHeight}, {stoneR, stoneG, stoneB, 255}, {0, 0}},
+        {{leftTop, towerTop}, {stoneR, stoneG, stoneB, 255}, {0, 0}},
+        {{leftBottom, towerTop}, {stoneR, stoneG, stoneB, 255}, {0, 0}}
+    };
+    SDL_RenderGeometry(renderer, nullptr, leftTriangle, 3, nullptr, 0);
+
+    // Right triangle
+    SDL_Vertex rightTriangle[3] = {
+        {{rightBottom, towerBottom + rect.h - baseHeight}, {stoneR, stoneG, stoneB, 255}, {0, 0}},
+        {{rightTop, towerTop}, {stoneR, stoneG, stoneB, 255}, {0, 0}},
+        {{rightBottom, towerTop}, {stoneR, stoneG, stoneB, 255}, {0, 0}}
+    };
+    SDL_RenderGeometry(renderer, nullptr, rightTriangle, 3, nullptr, 0);
+
+    // Center rectangle
+    SDL_FRect centerRect = {leftTop, towerTop, topWidth, towerHeight};
+    SDL_RenderFillRectF(renderer, &centerRect);
+
+    // 3. Stone block texture (vertical lines on tower)
+    SDL_SetRenderDrawColor(renderer, stoneR - 20, stoneG - 20, stoneB - 15, 255);
+    for (int i = 1; i < 4; ++i) {
+        float ratio = i / 4.0f;
+        float leftX = leftBottom + (leftTop - leftBottom) * ratio;
+        float rightX = rightBottom + (rightTop - rightBottom) * ratio;
+        float y = towerBottom + rect.h - baseHeight + (towerTop - (towerBottom + rect.h - baseHeight)) * ratio;
+        SDL_RenderDrawLine(renderer, static_cast<int>(leftX), static_cast<int>(y),
+                          static_cast<int>(rightX), static_cast<int>(y));
+    }
+
+    // 4. Wooden support beams (cross-bracing)
+    SDL_SetRenderDrawColor(renderer, woodR, woodG, woodB, 255);
+
+    // Cross braces at different heights
+    float braceY1 = rect.y + rect.h * 0.3f;
+    float braceY2 = rect.y + rect.h * 0.6f;
+
+    // Calculate brace positions with tapering
+    float brace1LeftX = rect.x + (baseWidth - topWidth) * 0.3f;
+    float brace1RightX = rect.x + baseWidth - (baseWidth - topWidth) * 0.3f;
+    float brace2LeftX = rect.x + (baseWidth - topWidth) * 0.1f;
+    float brace2RightX = rect.x + baseWidth - (baseWidth - topWidth) * 0.1f;
+
+    // Draw cross braces
+    SDL_RenderDrawLine(renderer, static_cast<int>(brace1LeftX), static_cast<int>(braceY1),
+                      static_cast<int>(brace1RightX), static_cast<int>(braceY2));
+    SDL_RenderDrawLine(renderer, static_cast<int>(brace1RightX), static_cast<int>(braceY1),
+                      static_cast<int>(brace1LeftX), static_cast<int>(braceY2));
+
+    // 5. Observation platform with railings
+    SDL_FRect platform = {
+        leftTop - topWidth * 0.15f,
+        rect.y - rect.h * 0.08f,
+        topWidth * 1.3f,
+        rect.h * 0.12f
+    };
+    SDL_SetRenderDrawColor(renderer, woodR + 10, woodG + 5, woodB, 255);
+    SDL_RenderFillRectF(renderer, &platform);
+
+    // Platform railings
+    SDL_SetRenderDrawColor(renderer, woodR - 10, woodG - 10, woodB - 5, 255);
+    SDL_RenderDrawLine(renderer, static_cast<int>(platform.x), static_cast<int>(platform.y),
+                      static_cast<int>(platform.x + platform.w), static_cast<int>(platform.y));
+    SDL_RenderDrawLine(renderer, static_cast<int>(platform.x), static_cast<int>(platform.y + platform.h),
+                      static_cast<int>(platform.x + platform.w), static_cast<int>(platform.y + platform.h));
+
+    // 6. Guard house/watch room
+    SDL_FRect guardHouse = {
+        leftTop + topWidth * 0.1f,
+        rect.y - rect.h * 0.25f,
+        topWidth * 0.8f,
+        rect.h * 0.2f
+    };
+    SDL_SetRenderDrawColor(renderer, woodR + 15, woodG + 10, woodB + 5, 255);
+    SDL_RenderFillRectF(renderer, &guardHouse);
+
+    // Guard house roof (simple peaked roof)
+    SDL_SetRenderDrawColor(renderer, woodR - 20, woodG - 15, woodB - 10, 255);
+    SDL_Point roofPoints[4] = {
+        {static_cast<int>(guardHouse.x), static_cast<int>(guardHouse.y)},
+        {static_cast<int>(guardHouse.x + guardHouse.w * 0.5f), static_cast<int>(guardHouse.y - guardHouse.h * 0.4f)},
+        {static_cast<int>(guardHouse.x + guardHouse.w), static_cast<int>(guardHouse.y)},
+        {static_cast<int>(guardHouse.x), static_cast<int>(guardHouse.y)}
+    };
+    SDL_RenderDrawLines(renderer, roofPoints, 4);
+
+    // 7. Windows/viewing ports
+    SDL_SetRenderDrawColor(renderer, 45, 45, 50, 255);
+
+    // Front viewing window
+    SDL_Rect frontWindow = {
+        static_cast<int>(guardHouse.x + guardHouse.w * 0.35f),
+        static_cast<int>(guardHouse.y + guardHouse.h * 0.25f),
+        static_cast<int>(guardHouse.w * 0.3f),
+        static_cast<int>(guardHouse.h * 0.4f)
+    };
+    SDL_RenderFillRect(renderer, &frontWindow);
+
+    // Tower arrow slits
+    SDL_Rect arrowSlit = {
+        static_cast<int>(leftTop + topWidth * 0.45f),
+        static_cast<int>(rect.y + rect.h * 0.4f),
+        2,
+        static_cast<int>(rect.h * 0.08f)
+    };
+    SDL_RenderFillRect(renderer, &arrowSlit);
+
+    arrowSlit.y = static_cast<int>(rect.y + rect.h * 0.6f);
+    SDL_RenderFillRect(renderer, &arrowSlit);
+
+    // 8. Battle damage effects (if health is low)
+    if (healthRatio < 0.7f) {
+        SDL_SetRenderDrawColor(renderer, 60, 60, 65, 255);
+        // Cracks in the stone
+        SDL_RenderDrawLine(renderer, static_cast<int>(rect.x + rect.w * 0.3f), static_cast<int>(rect.y + rect.h * 0.2f),
+                          static_cast<int>(rect.x + rect.w * 0.4f), static_cast<int>(rect.y + rect.h * 0.5f));
+
+        if (healthRatio < 0.4f) {
+            // More severe damage
+            SDL_RenderDrawLine(renderer, static_cast<int>(rect.x + rect.w * 0.6f), static_cast<int>(rect.y + rect.h * 0.1f),
+                              static_cast<int>(rect.x + rect.w * 0.7f), static_cast<int>(rect.y + rect.h * 0.4f));
+        }
+    }
+}
+
 void drawScenery(SDL_Renderer* renderer, const std::vector<SceneryObject>& objects) {
     for (const auto& obj : objects) {
         if (!obj.alive) continue;
         float healthRatio = obj.maxHealth > 0.0f ? std::clamp(obj.health / obj.maxHealth, 0.0f, 1.0f) : 1.0f;
-        SDL_FRect rect = obj.rect;
-        SDL_Color base = SDL_Color{ static_cast<Uint8>(124 + 32 * healthRatio), static_cast<Uint8>(128 + 26 * healthRatio), static_cast<Uint8>(134 + 24 * healthRatio), 255 };
-        SDL_SetRenderDrawColor(renderer, base.r, base.g, base.b, 255);
-        SDL_RenderFillRectF(renderer, &rect);
 
-        SDL_SetRenderDrawColor(renderer, 92, 92, 104, 255);
-        SDL_RenderDrawLine(renderer, static_cast<int>(rect.x + rect.w * 0.2f), static_cast<int>(rect.y + rect.h * 0.2f), static_cast<int>(rect.x + rect.w * 0.8f), static_cast<int>(rect.y + rect.h * 0.95f));
-        SDL_RenderDrawLine(renderer, static_cast<int>(rect.x + rect.w * 0.8f), static_cast<int>(rect.y + rect.h * 0.2f), static_cast<int>(rect.x + rect.w * 0.2f), static_cast<int>(rect.y + rect.h * 0.95f));
-
-        SDL_FRect platform{ rect.x - rect.w * 0.1f, rect.y - rect.h * 0.08f, rect.w * 1.2f, rect.h * 0.18f };
-        SDL_SetRenderDrawColor(renderer, 84, 68, 60, 255);
-        SDL_RenderFillRectF(renderer, &platform);
-
-        SDL_FRect hut{ rect.x + rect.w * 0.08f, rect.y - rect.h * 0.24f, rect.w * 0.84f, rect.h * 0.25f };
-        SDL_SetRenderDrawColor(renderer, 98, 88, 80, 255);
-        SDL_RenderFillRectF(renderer, &hut);
-        SDL_SetRenderDrawColor(renderer, 150, 152, 160, 255);
-        SDL_Rect window{ static_cast<int>(hut.x + hut.w * 0.2f), static_cast<int>(hut.y + hut.h * 0.35f), static_cast<int>(hut.w * 0.2f), static_cast<int>(hut.h * 0.4f) };
-        SDL_RenderFillRect(renderer, &window);
-        window.x += static_cast<int>(hut.w * 0.4f);
-        SDL_RenderFillRect(renderer, &window);
+        if (obj.kind == SceneryKind::Tower) {
+            drawWatchtower(renderer, obj.rect, healthRatio);
+        }
     }
 }
 
@@ -1246,6 +1447,27 @@ void drawUI(SDL_Renderer* renderer, const GameState& state) {
     int p2AmmoX = static_cast<int>(std::lround(LOGICAL_WIDTH - 116.0f + (barWidth - p2AmmoW) * 0.5f));
     drawText(renderer, p1AmmoX, ammoY, p1Ammo, labelColor, AMMO_PIXEL);
     drawText(renderer, p2AmmoX, ammoY, p2Ammo, labelColor, AMMO_PIXEL);
+
+    // Draw turn indicator
+    std::string turnText = state.waitingForTurnEnd ?
+        ("PLAYER " + std::to_string(state.currentPlayer) + " - SHOT FIRED") :
+        ("PLAYER " + std::to_string(state.currentPlayer) + "'S TURN");
+
+    SDL_Color turnColor = state.currentPlayer == 1 ? palette(1) : palette(3);
+    if (state.waitingForTurnEnd) {
+        turnColor = SDL_Color{200, 200, 50, 255}; // Yellow for waiting state
+    }
+
+    int turnTextWidth = measureText(turnText, 2);
+    int turnTextX = (LOGICAL_WIDTH - turnTextWidth) / 2;
+    int turnTextY = 50;
+
+    // Draw background for turn indicator
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 150);
+    SDL_Rect turnBg = {turnTextX - 8, turnTextY - 4, turnTextWidth + 16, GLYPH_HEIGHT * 2 + 8};
+    SDL_RenderFillRect(renderer, &turnBg);
+
+    drawText(renderer, turnTextX, turnTextY, turnText, turnColor, 2);
 }
 
 void drawBanner(SDL_Renderer* renderer, int winner) {
@@ -1270,11 +1492,290 @@ void drawBanner(SDL_Renderer* renderer, int winner) {
     drawText(renderer, subtitleX, subtitleY, subtitle, textColor);
 }
 
+void drawMenu(SDL_Renderer* renderer, const GameState& state) {
+    // Draw background
+    drawBackground(renderer);
+
+    // Title Banner Design
+    const std::string gameTitle = "TANK DUEL";
+    int titlePixelSize = 5;
+    int titleWidth = measureText(gameTitle, titlePixelSize);
+    int titleX = (LOGICAL_WIDTH - titleWidth) / 2;
+    int titleY = 60;
+
+    // Banner background with gradient effect
+    int bannerPadding = 40;
+    int bannerHeight = GLYPH_HEIGHT * titlePixelSize + 30;
+    SDL_Rect bannerBg = {
+        titleX - bannerPadding,
+        titleY - 15,
+        titleWidth + bannerPadding * 2,
+        bannerHeight
+    };
+
+    // Multi-layered banner background for depth
+    SDL_SetRenderDrawColor(renderer, 60, 40, 20, 255); // Dark brown border
+    SDL_RenderFillRect(renderer, &bannerBg);
+
+    SDL_Rect innerBanner = {bannerBg.x + 3, bannerBg.y + 3, bannerBg.w - 6, bannerBg.h - 6};
+    SDL_SetRenderDrawColor(renderer, 120, 80, 40, 255); // Medium brown
+    SDL_RenderFillRect(renderer, &innerBanner);
+
+    SDL_Rect innermost = {innerBanner.x + 2, innerBanner.y + 2, innerBanner.w - 4, innerBanner.h - 4};
+    SDL_SetRenderDrawColor(renderer, 140, 100, 60, 255); // Light brown base
+    SDL_RenderFillRect(renderer, &innermost);
+
+    // Banner corner decorations
+    SDL_SetRenderDrawColor(renderer, 200, 160, 100, 255);
+    // Top corners
+    SDL_RenderDrawLine(renderer, bannerBg.x + 5, bannerBg.y + 2, bannerBg.x + 15, bannerBg.y + 2);
+    SDL_RenderDrawLine(renderer, bannerBg.x + bannerBg.w - 15, bannerBg.y + 2, bannerBg.x + bannerBg.w - 5, bannerBg.y + 2);
+    // Bottom corners
+    SDL_RenderDrawLine(renderer, bannerBg.x + 5, bannerBg.y + bannerBg.h - 3, bannerBg.x + 15, bannerBg.y + bannerBg.h - 3);
+    SDL_RenderDrawLine(renderer, bannerBg.x + bannerBg.w - 15, bannerBg.y + bannerBg.h - 3, bannerBg.x + bannerBg.w - 5, bannerBg.y + bannerBg.h - 3);
+
+    // Banner rivets/studs for metal look
+    SDL_SetRenderDrawColor(renderer, 80, 60, 40, 255);
+    int rivetSize = 2;
+    // Left rivets
+    SDL_Rect rivet1 = {bannerBg.x + 8, bannerBg.y + 8, rivetSize, rivetSize};
+    SDL_Rect rivet2 = {bannerBg.x + 8, bannerBg.y + bannerBg.h - 10, rivetSize, rivetSize};
+    // Right rivets
+    SDL_Rect rivet3 = {bannerBg.x + bannerBg.w - 10, bannerBg.y + 8, rivetSize, rivetSize};
+    SDL_Rect rivet4 = {bannerBg.x + bannerBg.w - 10, bannerBg.y + bannerBg.h - 10, rivetSize, rivetSize};
+    SDL_RenderFillRect(renderer, &rivet1);
+    SDL_RenderFillRect(renderer, &rivet2);
+    SDL_RenderFillRect(renderer, &rivet3);
+    SDL_RenderFillRect(renderer, &rivet4);
+
+    // Title text with shadow effect
+    SDL_Color shadowColor{ 40, 20, 10, 255 };
+    SDL_Color titleColor{ 255, 236, 180, 255 };
+
+    // Draw shadow (offset)
+    drawText(renderer, titleX + 2, titleY + 2, gameTitle, shadowColor, titlePixelSize);
+    // Draw main title
+    drawText(renderer, titleX, titleY, gameTitle, titleColor, titlePixelSize);
+
+    // Subtitle
+    const std::string subtitle = "ARTILLERY COMBAT";
+    int subtitlePixelSize = 2;
+    int subtitleWidth = measureText(subtitle, subtitlePixelSize);
+    int subtitleX = (LOGICAL_WIDTH - subtitleWidth) / 2;
+    int subtitleY = titleY + GLYPH_HEIGHT * titlePixelSize + 8;
+
+    SDL_Color subtitleColor{ 180, 160, 120, 255 };
+    drawText(renderer, subtitleX, subtitleY, subtitle, subtitleColor, subtitlePixelSize);
+
+    // Menu options
+    SDL_Color normalColor{ 200, 200, 200, 255 };
+    SDL_Color selectedColor{ 255, 255, 100, 255 };
+
+    const std::string option1 = "1 PLAYER";
+    const std::string option2 = "2 PLAYER";
+
+    int option1Width = measureText(option1, 3);
+    int option2Width = measureText(option2, 3);
+
+    // Ensure the centering calculation is correct
+    int option1X = (LOGICAL_WIDTH - option1Width) / 2;
+    int option2X = (LOGICAL_WIDTH - option2Width) / 2;
+
+    // Safety clamp to prevent offscreen positioning
+    option1X = std::max(10, std::min(option1X, LOGICAL_WIDTH - option1Width - 10));
+    option2X = std::max(10, std::min(option2X, LOGICAL_WIDTH - option2Width - 10));
+    int option1Y = 240;  // Moved down to accommodate banner
+    int option2Y = 280;
+
+    // Draw selection background
+    int selectionY = (state.menuSelection == 0) ? option1Y : option2Y;
+    int selectionWidth = (state.menuSelection == 0) ? option1Width : option2Width;
+    int selectionX = (state.menuSelection == 0) ? option1X : option2X;
+
+    SDL_SetRenderDrawColor(renderer, 50, 50, 100, 180);
+    int selectionHeight = GLYPH_HEIGHT * 3; // Text is pixel size 3
+    SDL_Rect selectionBg = {selectionX - 8, selectionY - 4, selectionWidth + 16, selectionHeight + 8};
+    SDL_RenderFillRect(renderer, &selectionBg);
+
+    // Draw options
+    SDL_Color option1Color = (state.menuSelection == 0) ? selectedColor : normalColor;
+    SDL_Color option2Color = (state.menuSelection == 1) ? selectedColor : normalColor;
+
+    drawText(renderer, option1X, option1Y, option1, option1Color, 3);
+    drawText(renderer, option2X, option2Y, option2, option2Color, 3);
+
+    // Instructions
+    SDL_Color instructColor{ 150, 150, 150, 255 };
+    const std::string instruct1 = "USE W/S TO SELECT";
+    const std::string instruct2 = "PRESS SPACE TO START";
+
+    int instruct1Width = measureText(instruct1, 2);
+    int instruct2Width = measureText(instruct2, 2);
+    // Add safety clamping for instruction text centering
+    int instruct1X = (LOGICAL_WIDTH - instruct1Width) / 2;
+    int instruct2X = (LOGICAL_WIDTH - instruct2Width) / 2;
+
+    // Clamp X positions to ensure text stays on screen
+    instruct1X = std::max(5, std::min(instruct1X, LOGICAL_WIDTH - instruct1Width - 5));
+    instruct2X = std::max(5, std::min(instruct2X, LOGICAL_WIDTH - instruct2Width - 5));
+
+    // Adjust Y positions to ensure they fit within screen bounds
+    // LOGICAL_HEIGHT = 384, text height with pixel size 2 = GLYPH_HEIGHT * 2 = 14
+    int instruct1Y = 330;  // Moved up to ensure it fits
+    int instruct2Y = 350;  // Moved up to ensure both lines fit (350 + 14 = 364 < 384)
+
+    drawText(renderer, instruct1X, instruct1Y, instruct1, instructColor, 2);
+    drawText(renderer, instruct2X, instruct2Y, instruct2, instructColor, 2);
+}
+
 void positionTankOnTerrain(Tank& tank, const std::vector<int>& terrain) {
     float centerX = tank.rect.x + tank.rect.w * 0.5f;
     float surfaceY = terrainHeightAt(terrain, centerX);
     tank.rect.y = surfaceY - tank.rect.h;
     tank.verticalVelocity = 0.0f;
+}
+
+// Bot AI functions
+float calculateOptimalAngle(const Tank& botTank, const Tank& targetTank, float power) {
+    // Calculate distance and height difference
+    float botX = botTank.rect.x + botTank.rect.w * 0.5f;
+    float targetX = targetTank.rect.x + targetTank.rect.w * 0.5f;
+    float botY = botTank.rect.y + botTank.rect.h * 0.5f;
+    float targetY = targetTank.rect.y + targetTank.rect.h * 0.5f;
+
+    float dx = targetX - botX;
+    float dy = targetY - botY;
+    float distance = std::sqrt(dx * dx + dy * dy);
+
+    // Physics-based calculation for optimal trajectory
+    const float gravity = GRAVITY;
+    float velocity = power;
+    float velocitySq = velocity * velocity;
+
+    // Calculate optimal angle using ballistic formula
+    // angle = 0.5 * arcsin((g * distance) / velocity^2)
+    float denominator = velocitySq;
+    if (denominator <= 0.0f) return 45.0f;
+
+    float sinValue = (gravity * std::abs(dx)) / denominator;
+
+    // Add height compensation
+    if (dy < 0) { // Target is higher
+        sinValue *= 0.9f; // Aim slightly higher
+    } else { // Target is lower
+        sinValue *= 1.1f; // Aim slightly lower
+    }
+
+    sinValue = std::clamp(sinValue, -1.0f, 1.0f);
+    float angle = std::asin(sinValue) * 0.5f * (180.0f / M_PI);
+
+    // Add some randomness for realistic gameplay
+    float noise = randomFloat(-3.0f, 3.0f);
+    angle += noise;
+
+    return std::clamp(angle, 5.0f, MAX_TURRET_SWING - 5.0f);
+}
+
+float calculateOptimalPower(const Tank& botTank, const Tank& targetTank) {
+    float botX = botTank.rect.x + botTank.rect.w * 0.5f;
+    float targetX = targetTank.rect.x + targetTank.rect.w * 0.5f;
+    float distance = std::abs(targetX - botX);
+
+    // Base power calculation based on distance
+    float basePower = MIN_LAUNCH_SPEED + (distance / LOGICAL_WIDTH) * (MAX_LAUNCH_SPEED - MIN_LAUNCH_SPEED);
+
+    // Add some randomness
+    float noise = randomFloat(-15.0f, 15.0f);
+    basePower += noise;
+
+    return std::clamp(basePower, MIN_LAUNCH_SPEED, MAX_LAUNCH_SPEED);
+}
+
+ProjectileKind chooseBotAmmo(const GameState& state) {
+    // Simple ammo selection logic
+    float healthRatio = static_cast<float>(state.player1.hp) / static_cast<float>(TANK_HP);
+
+    if (healthRatio > 0.7f) {
+        // Early game - use cluster bombs for area damage
+        return randomFloat(0.0f, 1.0f) > 0.6f ? ProjectileKind::Cluster : ProjectileKind::Mortar;
+    } else if (healthRatio > 0.3f) {
+        // Mid game - mix of weapons
+        float choice = randomFloat(0.0f, 1.0f);
+        if (choice > 0.7f) return ProjectileKind::Napalm;
+        else if (choice > 0.4f) return ProjectileKind::Cluster;
+        else return ProjectileKind::Mortar;
+    } else {
+        // Late game - aggressive weapons
+        return randomFloat(0.0f, 1.0f) > 0.5f ? ProjectileKind::Napalm : ProjectileKind::Cluster;
+    }
+}
+
+void updateBotAI(GameState& state, float dt) {
+    if (!state.isPlayer2Bot || state.currentPlayer != 2 || state.waitingForTurnEnd) {
+        return;
+    }
+
+    Tank& bot = state.player2;
+    Tank& target = state.player1;
+
+    state.botThinkTimer += dt;
+
+    // Bot thinking phase (1-3 seconds)
+    if (state.botThinkTimer < randomFloat(1.0f, 3.0f) && !state.botReadyToFire) {
+        // Calculate targets during thinking phase
+        state.botTargetPower = calculateOptimalPower(bot, target);
+        state.botTargetAngle = calculateOptimalAngle(bot, target, state.botTargetPower);
+        state.botTargetAmmo = chooseBotAmmo(state);
+        return;
+    }
+
+    if (!state.botReadyToFire) {
+        state.botReadyToFire = true;
+        state.botThinkTimer = 0.0f;
+    }
+
+    // Gradually adjust bot's settings toward targets
+    const float adjustSpeed = 60.0f; // degrees per second for angle
+    const float powerAdjustSpeed = 80.0f; // power units per second
+
+    // Adjust angle
+    float angleDiff = state.botTargetAngle - bot.turretAngleDeg;
+    if (std::abs(angleDiff) > 0.5f) {
+        float angleStep = std::copysign(std::min(adjustSpeed * dt, std::abs(angleDiff)), angleDiff);
+        bot.turretAngleDeg += angleStep;
+        bot.turretAngleDeg = std::clamp(bot.turretAngleDeg, 0.0f, MAX_TURRET_SWING);
+    }
+
+    // Adjust power
+    float powerDiff = state.botTargetPower - bot.launchSpeed;
+    if (std::abs(powerDiff) > 1.0f) {
+        float powerStep = std::copysign(std::min(powerAdjustSpeed * dt, std::abs(powerDiff)), powerDiff);
+        bot.launchSpeed += powerStep;
+        bot.launchSpeed = std::clamp(bot.launchSpeed, MIN_LAUNCH_SPEED, MAX_LAUNCH_SPEED);
+    }
+
+    // Switch to target ammo
+    if (bot.selected != state.botTargetAmmo) {
+        bot.selected = state.botTargetAmmo;
+    }
+
+    // Fire when ready and settings are close to targets
+    bool angleReady = std::abs(state.botTargetAngle - bot.turretAngleDeg) < 1.0f;
+    bool powerReady = std::abs(state.botTargetPower - bot.launchSpeed) < 3.0f;
+    bool ammoReady = bot.selected == state.botTargetAmmo;
+
+    if (angleReady && powerReady && ammoReady && bot.reloadTimer <= 0.0f && !state.shotFired) {
+        // Bot fires
+        state.projectiles.push_back(spawnProjectile(bot));
+        bot.reloadTimer = RELOAD_TIME;
+        state.shotFired = true;
+        state.waitingForTurnEnd = true;
+        state.turnEndTimer = 3.0f;
+
+        // Reset bot state for next turn
+        state.botReadyToFire = false;
+        state.botThinkTimer = 0.0f;
+    }
 }
 
 void resetMatch(GameState& state) {
@@ -1314,6 +1815,24 @@ void resetMatch(GameState& state) {
 
     state.player1.exploding = false;
     state.player2.exploding = false;
+
+    // Initialize turn-based system
+    state.currentPlayer = 1;  // Player 1 starts
+    state.waitingForTurnEnd = false;
+    state.turnEndTimer = 0.0f;
+    state.shotFired = false;
+
+    // Initialize bot AI if in 1-player mode
+    if (state.gameMode == GameMode::OnePlayer) {
+        state.isPlayer2Bot = true;
+        state.botThinkTimer = 0.0f;
+        state.botTargetAngle = 45.0f;
+        state.botTargetPower = DEFAULT_LAUNCH_SPEED;
+        state.botTargetAmmo = ProjectileKind::Mortar;
+        state.botReadyToFire = false;
+    } else {
+        state.isPlayer2Bot = false;
+    }
     state.player1.explosionTimer = 0.0f;
     state.player2.explosionTimer = 0.0f;
 }
@@ -1414,6 +1933,22 @@ int main(int argc, char** argv) {
             if (evt.type == SDL_QUIT) {
                 running = false;
             }
+
+            // Handle menu input
+            if (state.currentScreen == GameScreen::Menu && evt.type == SDL_KEYDOWN) {
+                if (evt.key.keysym.scancode == SDL_SCANCODE_W || evt.key.keysym.scancode == SDL_SCANCODE_UP) {
+                    state.menuSelection = (state.menuSelection == 0) ? 1 : 0;
+                }
+                if (evt.key.keysym.scancode == SDL_SCANCODE_S || evt.key.keysym.scancode == SDL_SCANCODE_DOWN) {
+                    state.menuSelection = (state.menuSelection == 1) ? 0 : 1;
+                }
+                if (evt.key.keysym.scancode == SDL_SCANCODE_SPACE || evt.key.keysym.scancode == SDL_SCANCODE_RETURN) {
+                    // Start game with selected mode
+                    state.gameMode = (state.menuSelection == 0) ? GameMode::OnePlayer : GameMode::TwoPlayer;
+                    state.currentScreen = GameScreen::Playing;
+                    resetMatch(state);
+                }
+            }
         }
 
         Uint32 now = SDL_GetTicks();
@@ -1422,14 +1957,45 @@ int main(int argc, char** argv) {
 
         const Uint8* keys = SDL_GetKeyboardState(nullptr);
 
-        if (!state.matchOver) {
-            updateTank(state.player1, keys, dt, state.projectiles);
-            updateTank(state.player2, keys, dt, state.projectiles);
-            updateProjectiles(state, dt);
-        } else {
-            state.resetTimer -= dt;
-            if (state.resetTimer <= 0.0f) {
-                resetMatch(state);
+        if (state.currentScreen == GameScreen::Playing) {
+            if (!state.matchOver) {
+                // Update tanks with turn-based logic
+                bool player1CanControl = state.currentPlayer == 1;
+                bool player2CanControl = state.currentPlayer == 2 && !state.isPlayer2Bot;
+
+                updateTank(state.player1, keys, dt, state.projectiles, player1CanControl, state);
+                updateTank(state.player2, keys, dt, state.projectiles, player2CanControl, state);
+                updateProjectiles(state, dt);
+
+                // Update bot AI if it's bot's turn
+                if (state.isPlayer2Bot && state.currentPlayer == 2) {
+                    updateBotAI(state, dt);
+                }
+
+                // Handle turn switching
+                if (state.waitingForTurnEnd) {
+                    state.turnEndTimer -= dt;
+                    // Check if all projectiles have finished (no active projectiles or napalm)
+                    bool allProjectilesFinished = state.projectiles.empty() ||
+                        std::all_of(state.projectiles.begin(), state.projectiles.end(),
+                            [](const Projectile& p) { return !p.alive; });
+                    bool allExplosionsFinished = state.explosions.empty() ||
+                        std::all_of(state.explosions.begin(), state.explosions.end(),
+                            [](const Explosion& e) { return e.timer <= 0.0f; });
+
+                    // Switch turns when timer expires OR all effects are finished
+                    if (state.turnEndTimer <= 0.0f || (allProjectilesFinished && allExplosionsFinished)) {
+                        state.currentPlayer = (state.currentPlayer == 1) ? 2 : 1;
+                        state.waitingForTurnEnd = false;
+                        state.shotFired = false;
+                        state.turnEndTimer = 0.0f;
+                    }
+                }
+            } else {
+                state.resetTimer -= dt;
+                if (state.resetTimer <= 0.0f) {
+                    state.currentScreen = GameScreen::Menu; // Return to menu after match
+                }
             }
         }
 
@@ -1450,18 +2016,22 @@ int main(int argc, char** argv) {
             }
         }
 
-        drawBackground(renderer);
-        drawTerrain(renderer, state.terrainHeights, state.terrainSubstrate);
-        drawScenery(renderer, state.scenery);
-        drawNapalmPatches(renderer, state.napalmPatches);
-        drawProjectiles(renderer, state.projectiles);
-        drawExplosions(renderer, state.explosions);
-        drawTank(renderer, state.player1, assets, true);
-        drawTank(renderer, state.player2, assets, false);
-        drawUI(renderer, state);
+        if (state.currentScreen == GameScreen::Menu) {
+            drawMenu(renderer, state);
+        } else {
+            drawBackground(renderer);
+            drawTerrain(renderer, state.terrainHeights, state.terrainSubstrate);
+            drawScenery(renderer, state.scenery);
+            drawNapalmPatches(renderer, state.napalmPatches);
+            drawProjectiles(renderer, state.projectiles);
+            drawExplosions(renderer, state.explosions);
+            drawTank(renderer, state.player1, assets, true);
+            drawTank(renderer, state.player2, assets, false);
+            drawUI(renderer, state);
 
-        if (state.matchOver) {
-            drawBanner(renderer, state.winner);
+            if (state.matchOver) {
+                drawBanner(renderer, state.winner);
+            }
         }
 
         SDL_RenderPresent(renderer);
