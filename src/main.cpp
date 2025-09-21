@@ -86,6 +86,52 @@ enum class PlayMode { TurnBased, FreeForAll };
 
 enum class GameScreen { Menu, DifficultySelect, ModeSelect, Playing, Paused, Help };
 
+// AI Learning System
+constexpr int AI_MEMORY_SIZE = 25;  // Remember last 25 player actions
+
+struct PlayerAction {
+    float angle{0.0f};
+    float power{0.0f};
+    ProjectileKind ammo{ProjectileKind::Mortar};
+    float tankX{0.0f};
+    float tankY{0.0f};
+    float targetDistance{0.0f};
+    bool hit{false};
+    float timestamp{0.0f};
+};
+
+struct AIMemory {
+    std::array<PlayerAction, AI_MEMORY_SIZE> recentActions{};
+    int actionCount{0};
+    int currentIndex{0};
+
+    // Pattern analysis cache
+    float preferredAngle{45.0f};
+    float preferredPower{DEFAULT_LAUNCH_SPEED};
+    ProjectileKind preferredAmmo{ProjectileKind::Mortar};
+    float averageAccuracy{0.5f};
+    float aggressiveness{0.5f};  // How often player attacks vs repositions
+
+    // Defensive patterns
+    float forceFieldUsageRate{0.3f};
+    float averageReactionTime{2.0f};
+
+    // Performance tracking
+    float playerSkillLevel{0.5f};  // 0.0 = beginner, 1.0 = expert
+    float lastAnalysisTime{0.0f};
+};
+
+// Forward declarations
+struct GameState;
+struct Tank;
+
+// Forward declarations for AI learning functions
+void recordPlayerAction(GameState& state, const Tank& player, bool hit);
+void analyzePlayerPatterns(GameState& state);
+float getAdaptiveAccuracyModifier(const GameState& state);
+ProjectileKind getPredictiveAmmoChoice(const GameState& state);
+float getPredictiveAngleAdjustment(const GameState& state, float baseAngle);
+
 std::mt19937& rng() {
     static std::mt19937 engine{ std::random_device{}() };
     return engine;
@@ -338,6 +384,10 @@ struct GameState {
     float botTargetPower{DEFAULT_LAUNCH_SPEED};
     ProjectileKind botTargetAmmo{ProjectileKind::Mortar};
     bool botReadyToFire{false};
+
+    // AI Learning system
+    AIMemory aiMemory{};
+    float gameTime{0.0f};  // Track total game time for learning
 };
 
 SDL_FRect makeTankRect(float x, float y) {
@@ -513,6 +563,11 @@ void updateTank(Tank& tank, const Uint8* keys, float dt, std::vector<Projectile>
                 projectiles.push_back(spawnProjectile(tank));
                 tank.reloadTimer = RELOAD_TIME;
 
+                // Record player action for AI learning (hits will be determined later)
+                if (tank.id == 1) {  // Player 1 fired
+                    recordPlayerAction(state, tank, false);  // Hit status will be updated later
+                }
+
                 // Increment shot count and make force field available every 5 shots
                 tank.shotsFired++;
                 if (tank.shotsFired % 5 == 0) {
@@ -526,6 +581,11 @@ void updateTank(Tank& tank, const Uint8* keys, float dt, std::vector<Projectile>
                 tank.reloadTimer = RELOAD_TIME;
                 state.shotFired = true;
                 state.waitingForTurnEnd = true;
+
+                // Record player action for AI learning (hits will be determined later)
+                if (tank.id == 1) {  // Player 1 fired
+                    recordPlayerAction(state, tank, false);  // Hit status will be updated later
+                }
                 state.turnEndTimer = 3.0f; // Wait 3 seconds to see projectile impact before switching turns
 
                 // Increment shot count and make force field available every 5 shots
@@ -962,6 +1022,17 @@ void updateProjectiles(GameState& state, float dt) {
                 SDL_FRect hitbox = tankHitbox(*target);
                 if (circleIntersectsRect(proj.position, proj.radius, hitbox)) {
                     target->hp -= proj.damage;
+
+                    // Update AI learning: if this was a player 1 projectile hitting the bot, mark it as a hit
+                    if (state.isPlayer2Bot && proj.owner == 1 && target->id == 2) {
+                        // Find the most recent action and mark it as a hit
+                        AIMemory& memory = state.aiMemory;
+                        if (memory.actionCount > 0) {
+                            int lastIndex = (memory.currentIndex - 1 + AI_MEMORY_SIZE) % AI_MEMORY_SIZE;
+                            memory.recentActions[lastIndex].hit = true;
+                        }
+                    }
+
                     state.explosions.push_back({proj.position, EXPLOSION_DURATION, EXPLOSION_DURATION, 26.0f, false});
                     switch (proj.kind) {
                         case ProjectileKind::Mortar:
@@ -2222,38 +2293,49 @@ void updateBotAI(GameState& state, float dt) {
     Tank& bot = state.player2;
     Tank& target = state.player1;
 
+    // Update game time for learning system
+    state.gameTime += dt;
+
+    // Analyze player patterns periodically
+    analyzePlayerPatterns(state);
+
     state.botThinkTimer += dt;
 
     // Bot thinking phase (1-3 seconds)
     if (state.botThinkTimer < randomFloat(1.0f, 3.0f) && !state.botReadyToFire) {
-        // Calculate targets during thinking phase with difficulty-based accuracy
+        // Calculate targets during thinking phase with adaptive accuracy
         state.botTargetPower = calculateOptimalPower(bot, target);
         state.botTargetAngle = calculateOptimalAngle(bot, target, state.botTargetPower);
 
-        // Add inaccuracy based on difficulty to achieve target hit rates
+        // Get adaptive accuracy modifier based on player skill
+        float accuracyModifier = getAdaptiveAccuracyModifier(state);
+
+        // Add inaccuracy based on adaptive difficulty
         float angleError = 0.0f;
         float powerError = 0.0f;
-        switch (state.difficulty) {
-            case Difficulty::Easy:
-                // Target: 45% hit rate - moderate errors
-                angleError = randomFloat(-4.0f, 4.0f);
-                powerError = randomFloat(-15.0f, 15.0f);
-                break;
-            case Difficulty::Medium:
-                // Target: 60% hit rate - smaller errors
-                angleError = randomFloat(-2.0f, 2.0f);
-                powerError = randomFloat(-8.0f, 8.0f);
-                break;
-            case Difficulty::Hard:
-                // Target: 90%+ hit rate - minimal errors
-                angleError = randomFloat(-0.3f, 0.3f);
-                powerError = randomFloat(-2.0f, 2.0f);
-                break;
+
+        // Calculate error ranges based on adaptive accuracy
+        if (accuracyModifier < 0.5f) {
+            // High error for low accuracy
+            angleError = randomFloat(-5.0f, 5.0f) * (1.0f - accuracyModifier);
+            powerError = randomFloat(-18.0f, 18.0f) * (1.0f - accuracyModifier);
+        } else if (accuracyModifier < 0.75f) {
+            // Medium error
+            angleError = randomFloat(-2.5f, 2.5f) * (1.0f - accuracyModifier);
+            powerError = randomFloat(-10.0f, 10.0f) * (1.0f - accuracyModifier);
+        } else {
+            // Low error for high accuracy
+            angleError = randomFloat(-0.5f, 0.5f) * (1.0f - accuracyModifier);
+            powerError = randomFloat(-3.0f, 3.0f) * (1.0f - accuracyModifier);
         }
+
+        // Apply predictive angle adjustment
+        float angleAdjustment = getPredictiveAngleAdjustment(state, state.botTargetAngle);
+        state.botTargetAngle += angleAdjustment;
 
         state.botTargetAngle = std::clamp(state.botTargetAngle + angleError, 0.0f, MAX_TURRET_SWING);
         state.botTargetPower = std::clamp(state.botTargetPower + powerError, MIN_LAUNCH_SPEED, MAX_LAUNCH_SPEED);
-        state.botTargetAmmo = chooseBotAmmo(state);
+        state.botTargetAmmo = getPredictiveAmmoChoice(state);
         return;
     }
 
@@ -2342,6 +2424,173 @@ void updateBotAI(GameState& state, float dt) {
     }
 }
 
+// AI Learning System Functions
+void recordPlayerAction(GameState& state, const Tank& player, bool hit) {
+    if (!state.isPlayer2Bot) return;
+
+    AIMemory& memory = state.aiMemory;
+    PlayerAction& action = memory.recentActions[memory.currentIndex];
+
+    // Record the action
+    action.angle = player.turretAngleDeg;
+    action.power = player.launchSpeed;
+    action.ammo = player.selected;
+    action.tankX = player.rect.x;
+    action.tankY = player.rect.y;
+    action.targetDistance = std::abs((player.rect.x + player.rect.w * 0.5f) -
+                                   (state.player2.rect.x + state.player2.rect.w * 0.5f));
+    action.hit = hit;
+    action.timestamp = state.gameTime;
+
+    // Update circular buffer
+    memory.currentIndex = (memory.currentIndex + 1) % AI_MEMORY_SIZE;
+    memory.actionCount = std::min(memory.actionCount + 1, AI_MEMORY_SIZE);
+}
+
+void analyzePlayerPatterns(GameState& state) {
+    AIMemory& memory = state.aiMemory;
+
+    // Only analyze if we have enough data and haven't analyzed recently
+    if (memory.actionCount < 5 || (state.gameTime - memory.lastAnalysisTime) < 10.0f) {
+        return;
+    }
+
+    memory.lastAnalysisTime = state.gameTime;
+
+    // Analyze recent actions
+    float totalAngle = 0.0f;
+    float totalPower = 0.0f;
+    int ammoCount[4] = {0}; // Mortar, Cluster, Napalm, Dirtgun
+    int hitCount = 0;
+    int totalActions = std::min(memory.actionCount, AI_MEMORY_SIZE);
+
+    for (int i = 0; i < totalActions; ++i) {
+        const PlayerAction& action = memory.recentActions[i];
+        totalAngle += action.angle;
+        totalPower += action.power;
+
+        switch (action.ammo) {
+            case ProjectileKind::Mortar: ammoCount[0]++; break;
+            case ProjectileKind::Cluster: ammoCount[1]++; break;
+            case ProjectileKind::Napalm: ammoCount[2]++; break;
+            case ProjectileKind::Dirtgun: ammoCount[3]++; break;
+            default: break;
+        }
+
+        if (action.hit) hitCount++;
+    }
+
+    // Calculate preferences
+    memory.preferredAngle = totalAngle / totalActions;
+    memory.preferredPower = totalPower / totalActions;
+    memory.averageAccuracy = static_cast<float>(hitCount) / totalActions;
+
+    // Find most used ammo type
+    int maxAmmoIndex = 0;
+    for (int i = 1; i < 4; ++i) {
+        if (ammoCount[i] > ammoCount[maxAmmoIndex]) {
+            maxAmmoIndex = i;
+        }
+    }
+
+    static const ProjectileKind ammoTypes[] = {
+        ProjectileKind::Mortar, ProjectileKind::Cluster,
+        ProjectileKind::Napalm, ProjectileKind::Dirtgun
+    };
+    memory.preferredAmmo = ammoTypes[maxAmmoIndex];
+
+    // Calculate player skill level based on accuracy and consistency
+    float skillFromAccuracy = std::clamp(memory.averageAccuracy * 2.0f, 0.0f, 1.0f);
+    float powerConsistency = 1.0f; // TODO: Calculate power variance
+    memory.playerSkillLevel = (skillFromAccuracy + powerConsistency) * 0.5f;
+
+    // Adjust aggressiveness based on ammo usage
+    float aggressiveAmmoRatio = (ammoCount[1] + ammoCount[2]) / static_cast<float>(totalActions);
+    memory.aggressiveness = std::clamp(aggressiveAmmoRatio * 1.5f, 0.2f, 0.8f);
+}
+
+float getAdaptiveAccuracyModifier(const GameState& state) {
+    const AIMemory& memory = state.aiMemory;
+
+    // Base accuracy from difficulty
+    float baseAccuracy = 1.0f;
+    switch (state.difficulty) {
+        case Difficulty::Easy: baseAccuracy = 0.45f; break;
+        case Difficulty::Medium: baseAccuracy = 0.60f; break;
+        case Difficulty::Hard: baseAccuracy = 0.90f; break;
+    }
+
+    // Adapt based on player skill
+    if (memory.actionCount >= 5) {
+        // If player is very accurate, increase AI accuracy slightly
+        if (memory.averageAccuracy > 0.7f) {
+            baseAccuracy = std::min(baseAccuracy + 0.1f, 0.95f);
+        }
+        // If player is struggling, reduce AI accuracy slightly
+        else if (memory.averageAccuracy < 0.3f) {
+            baseAccuracy = std::max(baseAccuracy - 0.1f, 0.25f);
+        }
+    }
+
+    return baseAccuracy;
+}
+
+ProjectileKind getPredictiveAmmoChoice(const GameState& state) {
+    const AIMemory& memory = state.aiMemory;
+
+    // Use base ammo selection but consider player patterns
+    ProjectileKind baseChoice = chooseBotAmmo(state);
+
+    if (memory.actionCount >= 8) {
+        // If player favors aggressive ammo, AI might use defensive options
+        if (memory.preferredAmmo == ProjectileKind::Napalm ||
+            memory.preferredAmmo == ProjectileKind::Cluster) {
+            // Sometimes use Dirtgun to build defensive positions
+            if (randomFloat(0.0f, 1.0f) < 0.2f) {
+                return ProjectileKind::Dirtgun;
+            }
+        }
+
+        // If player uses lots of Dirtgun, AI might counter with cluster bombs
+        if (memory.preferredAmmo == ProjectileKind::Dirtgun) {
+            if (randomFloat(0.0f, 1.0f) < 0.3f) {
+                return ProjectileKind::Cluster;
+            }
+        }
+    }
+
+    return baseChoice;
+}
+
+float getPredictiveAngleAdjustment(const GameState& state, float baseAngle) {
+    const AIMemory& memory = state.aiMemory;
+
+    if (memory.actionCount < 5) return 0.0f;
+
+    // Predict where player might move based on their patterns
+    float playerX = state.player1.rect.x + state.player1.rect.w * 0.5f;
+    float predictedX = playerX;
+
+    // Simple prediction: if player tends to favor certain angles,
+    // they might move to positions that support those angles
+    if (memory.preferredAngle < 30.0f) {
+        // Player likes low angles, might move closer
+        predictedX -= 20.0f;
+    } else if (memory.preferredAngle > 60.0f) {
+        // Player likes high angles, might move further or use cover
+        predictedX += 15.0f;
+    }
+
+    // Calculate angle adjustment needed to hit predicted position
+    float botX = state.player2.rect.x + state.player2.rect.w * 0.5f;
+    float targetDistance = std::abs(predictedX - botX);
+    float currentDistance = std::abs(playerX - botX);
+
+    // Small adjustment based on prediction
+    float angleAdjustment = (targetDistance - currentDistance) * 0.01f;
+    return std::clamp(angleAdjustment, -2.0f, 2.0f);
+}
+
 void resetMatch(GameState& state) {
     generateTerrain(state.terrainHeights, state.terrainSubstrate);
     generateSceneryObjects(state);
@@ -2404,6 +2653,16 @@ void resetMatch(GameState& state) {
         state.botTargetPower = DEFAULT_LAUNCH_SPEED;
         state.botTargetAmmo = ProjectileKind::Mortar;
         state.botReadyToFire = false;
+
+        // Initialize AI learning system (don't reset completely, preserve some learning across matches)
+        // Only reset if this is the first time or player changed difficulty
+        static bool firstInit = true;
+        if (firstInit) {
+            state.aiMemory = AIMemory{};  // Complete reset on first initialization
+            firstInit = false;
+        }
+        // Reset game time but keep learned patterns
+        state.gameTime = 0.0f;
     } else {
         state.isPlayer2Bot = false;
     }

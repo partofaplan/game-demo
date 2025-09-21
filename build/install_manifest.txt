@@ -1,5 +1,0 @@
-/Users/zachperkins/repos/game-demo/build/_CPack_Packages/Darwin/ZIP/TankDuel-1.0.0-Darwin/./TankDuel.app/Contents/MacOS/TankDuel
-/Users/zachperkins/repos/game-demo/build/_CPack_Packages/Darwin/ZIP/TankDuel-1.0.0-Darwin/./TankDuel.app/Contents/Resources/tankduel.icns
-/Users/zachperkins/repos/game-demo/build/_CPack_Packages/Darwin/ZIP/TankDuel-1.0.0-Darwin/./TankDuel.app/Contents/Info.plist
-/Users/zachperkins/repos/game-demo/build/_CPack_Packages/Darwin/ZIP/TankDuel-1.0.0-Darwin/share/doc/TankDuel/README.md
-/Users/zachperkins/repos/game-demo/build/_CPack_Packages/Darwin/ZIP/TankDuel-1.0.0-Darwin/share/doc/TankDuel/LICENSE

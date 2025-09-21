@@ -1,5 +1,5 @@
 CMakeFiles/tank_duel.dir/src/main.cpp.o: \
-  /Users/zachperkins/repos/game-demo/src/main.cpp \
+  /Users/zachperkins/repos/tank-duel/src/main.cpp \
   /usr/local/Cellar/sdl2/2.32.10/include/SDL2/SDL.h \
   /usr/local/Cellar/sdl2/2.32.10/include/SDL2/SDL_main.h \
   /usr/local/Cellar/sdl2/2.32.10/include/SDL2/SDL_stdinc.h \
