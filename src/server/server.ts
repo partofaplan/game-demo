@@ -16,7 +16,7 @@ const io = new SocketServer(server, {
 })
 
 app.use(cors())
-app.use(express.static(path.join(__dirname, 'public')))
+app.use(express.static(path.join(__dirname, '../public')))
 
 // Game state
 const rooms = new Map<string, GameRoom>()

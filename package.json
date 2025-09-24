@@ -2,7 +2,7 @@
   "name": "tank-duel-web",
   "version": "1.0.0",
   "description": "Tank Duel - Web multiplayer tank battle game",
-  "main": "dist/server.js",
+  "main": "dist/server/server.js",
   "scripts": {
     "dev": "concurrently \"npm run server:dev\" \"npm run client:dev\"",
     "server:dev": "tsx watch src/server/server.ts",
@@ -10,7 +10,7 @@
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
-    "start": "node dist/server.js",
+    "start": "node dist/server/server.js",
     "preview": "vite preview"
   },
   "dependencies": {

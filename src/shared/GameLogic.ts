@@ -21,7 +21,8 @@ export class GameLogic {
       currentAmmo: ProjectileKind.Mortar,
       isAlive: true,
       shieldActive: false,
-      shieldCooldown: 0
+      shieldCooldown: 0,
+      team: isPlayer2 ? 'green' : 'red'
     }
   }
 

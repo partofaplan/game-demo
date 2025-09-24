@@ -1,5 +1,5 @@
 import { Server as SocketServer } from 'socket.io'
-import { Player, Tank, GameState, PlayerAction, GAME_CONSTANTS as C, ProjectileKind } from '../../shared/types'
+import { Player, GameState, PlayerAction, GAME_CONSTANTS as C } from '../../shared/types'
 import { GameLogic } from '../../shared/GameLogic'
 
 export class GameRoom {

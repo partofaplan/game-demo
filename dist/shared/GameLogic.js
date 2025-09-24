@@ -14,7 +14,8 @@ class GameLogic {
             currentAmmo: types_1.ProjectileKind.Mortar,
             isAlive: true,
             shieldActive: false,
-            shieldCooldown: 0
+            shieldCooldown: 0,
+            team: isPlayer2 ? 'green' : 'red'
         };
     }
     static createProjectile(kind, position, velocity, ownerId) {

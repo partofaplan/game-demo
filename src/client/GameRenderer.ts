@@ -1,5 +1,6 @@
 import { GAME_CONSTANTS as C, ProjectileKind } from '@shared/types'
 import { SpriteExtractor } from './SpriteExtractor'
+import tanksSprite from './assets/tanks.png'
 
 interface TankSprites {
   hull: HTMLCanvasElement
@@ -29,7 +30,7 @@ export class GameRenderer {
   private async loadSprites(): Promise<void> {
     try {
       const extractor = new SpriteExtractor()
-      await extractor.loadSourceImage('./src/client/assets/tanks.png')
+      await extractor.loadSourceImage(tanksSprite)
 
       const tankSprites = await extractor.extractTankSprites()
 
