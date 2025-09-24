@@ -330,7 +330,7 @@ export class GameLogic {
       y: Math.sin(angle) * tank.power
     }
 
-    const muzzleDistance = 15 // Distance from tank center to muzzle
+    const muzzleDistance = 30 // Distance from tank center to muzzle (doubled for larger tank)
     const startPosition = {
       x: tank.position.x + Math.cos(angle) * muzzleDistance,
       y: tank.position.y + Math.sin(angle) * muzzleDistance

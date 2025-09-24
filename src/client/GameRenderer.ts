@@ -73,24 +73,24 @@ export class GameRenderer {
 
       // Draw turret
       this.ctx.save()
-      this.ctx.translate(0, -2)
+      this.ctx.translate(0, -4)
       this.ctx.rotate(tank.turretAngle * C.DEG2RAD)
 
       this.ctx.fillStyle = tank.shieldActive ? '#00DDDD' : '#2A2A2A'
-      this.ctx.fillRect(0, -1, 15, 2)
+      this.ctx.fillRect(0, -2, 30, 4)
 
       this.ctx.restore()
 
       // Draw HP bar
       const barWidth = C.TANK_COLLISION_WIDTH
-      const barHeight = 2
+      const barHeight = 4
       const hpPercent = tank.hp / tank.maxHp
 
       this.ctx.fillStyle = '#FF0000'
-      this.ctx.fillRect(-barWidth / 2, -8, barWidth, barHeight)
+      this.ctx.fillRect(-barWidth / 2, -16, barWidth, barHeight)
 
       this.ctx.fillStyle = '#00FF00'
-      this.ctx.fillRect(-barWidth / 2, -8, barWidth * hpPercent, barHeight)
+      this.ctx.fillRect(-barWidth / 2, -16, barWidth * hpPercent, barHeight)
 
       this.ctx.restore()
     })
