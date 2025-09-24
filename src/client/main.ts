@@ -114,6 +114,7 @@ class GameClient {
     this.updateHealthBars()
     this.updateTurnUI(this.gameState.currentTurn)
     this.updateAmmoDisplay()
+    this.updateInputHandler()
   }
 
   private updatePlayerNames(): void {
@@ -178,7 +179,12 @@ class GameClient {
     const tank = this.gameState.tanks[this.playerId]
     if (tank) {
       const ammoElement = document.getElementById('currentAmmo')!
+      const powerElement = document.getElementById('currentPower')!
+      const angleElement = document.getElementById('currentAngle')!
+
       ammoElement.textContent = this.getAmmoName(tank.currentAmmo)
+      powerElement.textContent = `Power: ${Math.round(tank.power)}`
+      angleElement.textContent = `Angle: ${Math.round(tank.turretAngle)}°`
     }
   }
 
@@ -193,6 +199,15 @@ class GameClient {
   private getPlayerName(playerId: string): string {
     // In a real implementation, you'd store player names
     return playerId === this.playerId ? 'You' : `Player ${playerId.substring(0, 4)}`
+  }
+
+  private updateInputHandler(): void {
+    if (!this.gameState?.tanks || !this.playerId) return
+
+    const tank = this.gameState.tanks[this.playerId]
+    if (tank) {
+      this.inputHandler.updateGameState(tank.turretAngle, tank.power)
+    }
   }
 
   private getAmmoName(ammo: ProjectileKind): string {

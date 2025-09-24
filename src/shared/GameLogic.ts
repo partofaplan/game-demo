@@ -10,13 +10,13 @@ import {
 } from './types'
 
 export class GameLogic {
-  static createTank(id: string, x: number): Tank {
+  static createTank(id: string, x: number, isPlayer2: boolean = false): Tank {
     return {
       id,
       position: { x, y: 0 },
       hp: C.TANK_HP,
       maxHp: C.TANK_HP,
-      turretAngle: 0,
+      turretAngle: isPlayer2 ? 180 : 0, // Player 2 faces left (180°), Player 1 faces right (0°)
       power: C.DEFAULT_LAUNCH_SPEED,
       currentAmmo: ProjectileKind.Mortar,
       isAlive: true,

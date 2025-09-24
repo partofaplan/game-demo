@@ -33,8 +33,9 @@ export class GameRoom {
     this.players.set(player.id, player)
 
     // Create tank for player
-    const tankX = this.players.size === 1 ? 100 : C.LOGICAL_WIDTH - 100
-    const tank = GameLogic.createTank(player.id, tankX)
+    const isPlayer2 = this.players.size === 2
+    const tankX = this.players.size === 1 ? 200 : C.LOGICAL_WIDTH - 200
+    const tank = GameLogic.createTank(player.id, tankX, isPlayer2)
 
     // Position tank on terrain
     tank.position.y = GameLogic.getTerrainHeight(this.gameState.terrain, tankX) - C.TANK_COLLISION_HEIGHT

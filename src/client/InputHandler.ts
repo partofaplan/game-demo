@@ -3,6 +3,8 @@ import { GAME_CONSTANTS as C } from '@shared/types'
 export class InputHandler {
   private keys = new Set<string>()
   private actionCallback: ((action: any) => void) | null = null
+  private currentAngle = 0
+  private currentPower = C.DEFAULT_LAUNCH_SPEED
 
   constructor() {
     this.setupEventListeners()
@@ -10,6 +12,11 @@ export class InputHandler {
 
   onAction(callback: (action: any) => void): void {
     this.actionCallback = callback
+  }
+
+  updateGameState(angle: number, power: number): void {
+    this.currentAngle = angle
+    this.currentPower = power
   }
 
   private setupEventListeners(): void {
@@ -37,33 +44,37 @@ export class InputHandler {
     switch (code) {
       case 'KeyQ':
         // Aim up
+        this.currentAngle = Math.max(-C.MAX_TURRET_SWING, this.currentAngle - 5)
         this.actionCallback({
           type: 'aim',
-          data: { angle: this.getCurrentAngle() - C.TURRET_ROT_SPEED * 0.1 }
+          data: { angle: this.currentAngle }
         })
         break
 
       case 'KeyA':
         // Aim down
+        this.currentAngle = Math.min(C.MAX_TURRET_SWING, this.currentAngle + 5)
         this.actionCallback({
           type: 'aim',
-          data: { angle: this.getCurrentAngle() + C.TURRET_ROT_SPEED * 0.1 }
+          data: { angle: this.currentAngle }
         })
         break
 
       case 'KeyW':
         // Increase power
+        this.currentPower = Math.min(C.MAX_LAUNCH_SPEED, this.currentPower + 10)
         this.actionCallback({
           type: 'power',
-          data: { power: this.getCurrentPower() + C.POWER_ADJUST_RATE * 0.1 }
+          data: { power: this.currentPower }
         })
         break
 
       case 'KeyS':
         // Decrease power
+        this.currentPower = Math.max(C.MIN_LAUNCH_SPEED, this.currentPower - 10)
         this.actionCallback({
           type: 'power',
-          data: { power: this.getCurrentPower() - C.POWER_ADJUST_RATE * 0.1 }
+          data: { power: this.currentPower }
         })
         break
 
@@ -84,13 +95,4 @@ export class InputHandler {
     }
   }
 
-  private getCurrentAngle(): number {
-    // This should be tracked from game state in a real implementation
-    return 0
-  }
-
-  private getCurrentPower(): number {
-    // This should be tracked from game state in a real implementation
-    return C.DEFAULT_LAUNCH_SPEED
-  }
 }
