@@ -1,8 +1,0 @@
-tankduel (1.0.0-1) unstable; urgency=medium
-
-  * Initial release of TankDuel
-  * Features tank battle gameplay with SDL2
-  * Cross-platform support for Linux, macOS, and Windows
-  * Modern CMake build system with proper packaging
-
- -- TankDuel Development Team <dev@tankduel.com>  Fri, 20 Sep 2024 12:00:00 +0000

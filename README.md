@@ -1,224 +1,209 @@
-# Tank Duel
+# Tank Duel Web Game
 
-An exciting turn-based artillery combat game featuring tank battles, destructible terrain, and physics-based projectiles.
+A real-time multiplayer web version of Tank Duel built for Google Cloud Run.
 
-![Tank Duel](tankduel.png)
+## 🎮 Game Features
 
-## Features
+- **Real-time Multiplayer**: Two players battle in real-time using WebSockets
+- **HTML5 Canvas Graphics**: Pixel-perfect 2D graphics with smooth animations
+- **Turn-based Combat**: Strategic gameplay with 30-second turns
+- **Multiple Weapons**: Mortar, Cluster bombs, Napalm, and Dirt Gun
+- **Destructible Terrain**: Dynamic battlefields that change with each explosion
+- **Shield System**: Activate protective shields for defense
 
-- **Single Player Mode**: Battle against AI with adjustable difficulty (Easy, Medium, Hard)
-- **Multiplayer Mode**: Local 2-player battles with turn-based or free-for-all gameplay
-- **Multiple Weapon Types**: Mortar, Cluster bombs, Napalm, and Dirtgun
-- **Destructible Environment**: Terrain erodes from explosions, towers fall realistically
-- **Force Field System**: Activate protective shields that bounce projectiles
-- **Physics Simulation**: Realistic ballistic trajectories and gravity effects
-- **Dynamic AI**: Smart bot opponents that adapt strategy based on difficulty
+## 🚀 Quick Start
 
-## Game Controls
+### Local Development
 
-### Help Screen
-Press **ESC** during gameplay to pause, or select **HELP** from the main menu for detailed control instructions.
+1. **Install dependencies**:
+   ```bash
+   npm install
+   ```
 
-### Basic Controls
+2. **Start development server**:
+   ```bash
+   npm run dev
+   ```
 
-#### Single Player Mode
+3. **Open in browser**:
+   - Client: http://localhost:5173
+   - Server: http://localhost:3000
+
+### Production Build
+
+```bash
+npm run build
+npm start
+```
+
+## ☁️ Deploy to Google Cloud Run
+
+### Prerequisites
+
+- Google Cloud SDK installed and configured
+- A Google Cloud Project with billing enabled
+
+### Deployment Steps
+
+1. **Update the project ID** in `deploy.sh`:
+   ```bash
+   PROJECT_ID="your-project-id"
+   ```
+
+2. **Run the deployment script**:
+   ```bash
+   ./deploy.sh
+   ```
+
+3. **Or deploy manually**:
+   ```bash
+   # Enable APIs
+   gcloud services enable cloudbuild.googleapis.com run.googleapis.com
+
+   # Build and deploy
+   gcloud builds submit --config cloudbuild.yaml
+
+   # Get service URL
+   gcloud run services describe tank-duel --region=us-central1 --format="value(status.url)"
+   ```
+
+### Manual Docker Deployment
+
+```bash
+# Build image
+docker build -t tank-duel .
+
+# Run locally
+docker run -p 3000:3000 tank-duel
+
+# Push to Google Container Registry
+docker tag tank-duel gcr.io/YOUR_PROJECT_ID/tank-duel
+docker push gcr.io/YOUR_PROJECT_ID/tank-duel
+
+# Deploy to Cloud Run
+gcloud run deploy tank-duel \
+  --image gcr.io/YOUR_PROJECT_ID/tank-duel \
+  --region us-central1 \
+  --platform managed \
+  --allow-unauthenticated
+```
+
+## 🎯 How to Play
+
+### Controls
+
 - **Q/A**: Aim turret up/down
-- **W/S**: Adjust projectile power
+- **W/S**: Adjust power
 - **SPACE**: Fire weapon
-- **E**: Cycle through weapon types
-- **R**: Activate force field (when available)
+- **E**: Change ammo type
+- **R**: Activate shield
 
-#### Two Player Mode
-- **Player 1**: Q/A (aim), W/S (power), SPACE (fire), E (ammo), R (shield)
-- **Player 2**: I/K (aim), O/L (power), J (fire), U (shield)
+### Game Flow
 
-## Installation
-
-### Windows
-
-#### Option 1: Installer (Recommended)
-1. Download the latest `TankDuel-Setup.exe` from the [Releases](../../releases) page
-2. Run the installer and follow the setup wizard
-3. Launch Tank Duel from the Start Menu or Desktop shortcut
-
-#### Option 2: Portable ZIP
-1. Download `TankDuel-Windows.zip` from the [Releases](../../releases) page
-2. Extract the ZIP file to your desired location
-3. Double-click `TankDuel.exe` to play
-
-#### Building from Source
-See [BUILD_WINDOWS.md](BUILD_WINDOWS.md) for detailed build instructions.
-
-**Requirements:**
-- Windows 10 or later (64-bit recommended)
-- DirectX 9.0c or later
-- 50 MB free disk space
-
-### macOS
-
-#### Option 1: DMG Package (Recommended)
-1. Download `TankDuel.dmg` from the [Releases](../../releases) page
-2. Open the DMG file
-3. Drag Tank Duel to your Applications folder
-4. Launch from Applications or Launchpad
-
-#### Option 2: ZIP Archive
-1. Download `TankDuel-macOS.zip` from the [Releases](../../releases) page
-2. Extract the ZIP file
-3. Move `TankDuel.app` to your Applications folder
-4. Launch the application
-
-#### Building from Source
-```bash
-# Install dependencies (using Homebrew)
-brew install cmake sdl2
-
-# Clone and build
-git clone <repository-url>
-cd tank-duel
-mkdir build && cd build
-cmake ..
-make
-
-# Run
-open TankDuel.app
-```
-
-**Requirements:**
-- macOS 10.15 (Catalina) or later
-- 50 MB free disk space
-
-### Linux
-
-#### Building from Source
-```bash
-# Ubuntu/Debian
-sudo apt update
-sudo apt install cmake libsdl2-dev build-essential
-
-# Fedora/RHEL
-sudo dnf install cmake SDL2-devel gcc-c++
-
-# Arch Linux
-sudo pacman -S cmake sdl2 base-devel
-
-# Build
-git clone <repository-url>
-cd tank-duel
-mkdir build && cd build
-cmake ..
-make
-
-# Install (optional)
-sudo make install
-
-# Run
-./TankDuel
-```
-
-## Gameplay
-
-### Game Modes
-- **1 Player**: Face off against AI bots with three difficulty levels
-- **2 Player**: Local multiplayer with turn-based or simultaneous play modes
+1. Enter your name and click "Join Game"
+2. Wait for another player to join
+3. Take turns firing at your opponent
+4. Use terrain and strategy to your advantage
+5. Last tank standing wins!
 
 ### Weapons
-- **Mortar**: Standard explosive projectile
+
+- **Mortar**: Standard explosive round
 - **Cluster**: Splits into multiple smaller explosives
 - **Napalm**: Creates burning patches that damage over time
-- **Dirtgun**: Builds terrain instead of destroying it
+- **Dirt Gun**: Builds terrain instead of destroying it
 
-### Strategy Tips
-- Use terrain to your advantage - hide behind hills and towers
-- Force fields recharge after several shots - use them wisely
-- Napalm creates area denial zones
-- Dirtgun can create defensive positions or escape routes
-- Watch for falling towers when terrain erodes beneath them
+## 🏗️ Architecture
 
-## Development
+### Tech Stack
 
-### Building Installers
+- **Frontend**: TypeScript, HTML5 Canvas, Vite
+- **Backend**: Node.js, Express, Socket.IO
+- **Deployment**: Docker, Google Cloud Run
+- **Real-time Communication**: WebSockets via Socket.IO
 
-#### Windows
-```cmd
-# Quick build with installer
-scripts\build.bat --package
+### Project Structure
 
-# Manual build
-mkdir build
-cd build
-cmake .. -G "Visual Studio 17 2022"
-cmake --build . --config Release
-cmake --build . --target package --config Release
-
-# Output files:
-# - build\TankDuel-1.0.0-win64.exe (NSIS installer)
-# - build\TankDuel-1.0.0-win64.zip (Portable ZIP)
+```
+src/
+├── client/           # Frontend code
+│   ├── main.ts       # Main client entry point
+│   ├── GameRenderer.ts   # Canvas rendering
+│   ├── InputHandler.ts   # Keyboard controls
+│   └── index.html    # Game UI
+├── server/           # Backend code
+│   ├── server.ts     # Express + Socket.IO server
+│   └── game/
+│       └── GameRoom.ts   # Game state management
+└── shared/           # Shared code
+    ├── types.ts      # TypeScript interfaces
+    └── GameLogic.ts  # Core game mechanics
 ```
 
-#### macOS
-```bash
-# Quick build
-mkdir build && cd build
-cmake ..
-make
+### Game Logic
 
-# Create specific packages
-cpack -G DragNDrop  # Creates DMG
-cpack -G ZIP        # Creates ZIP
+The game uses authoritative server architecture:
 
-# Output files:
-# - TankDuel-1.0.0-Darwin.dmg (Drag & Drop installer)
-# - TankDuel-1.0.0-Darwin.zip (Portable ZIP)
-```
+- **Server**: Maintains canonical game state, processes all game logic
+- **Client**: Renders game state, handles input, sends actions to server
+- **Synchronization**: Real-time updates via WebSockets
 
-#### Build Script Options
-**Windows (`scripts\build.bat`):**
-- `--package` or `-p`: Create installer packages
-- `--debug` or `-d`: Build in Debug mode
-- `--clean` or `-c`: Clean build directory first
-- `--vs2019`: Force Visual Studio 2019
-- `--vs2022`: Force Visual Studio 2022
-- `--mingw`: Force MinGW compiler
+## 🔧 Configuration
 
-### Technical Details
-- **Engine**: Custom C++ engine with SDL2
-- **Graphics**: Software-rendered pixel art style
-- **Physics**: Custom ballistics and collision system
-- **AI**: Difficulty-scaled bot intelligence
-- **Cross-platform**: Windows, macOS, and Linux support
+### Environment Variables
 
-## Troubleshooting
+- `PORT`: Server port (default: 3000)
+- `NODE_ENV`: Environment mode (development/production)
 
-### Windows
-- **"Missing DLL" error**: Download and install Visual C++ Redistributable
-- **Game won't start**: Try running as administrator
-- **Performance issues**: Update graphics drivers
+### Cloud Run Settings
 
-### macOS
-- **"App can't be opened"**: Right-click → Open, then click "Open" in dialog
-- **Permission denied**: Check System Preferences → Security & Privacy
-- **Crashes on startup**: Try running from Terminal to see error messages
+- **Memory**: 512Mi
+- **CPU**: 1 vCPU
+- **Concurrency**: 80 requests per instance
+- **Max Instances**: 10
 
-### General
-- **Controls not working**: Check Help screen for correct key mappings
-- **Audio issues**: Ensure system audio is not muted
-- **Display problems**: Try running in windowed mode
+## 🐛 Troubleshooting
 
-## License
+### Common Issues
+
+1. **Build fails**: Ensure all dependencies are installed
+2. **WebSocket connection fails**: Check CORS settings and port configuration
+3. **Game doesn't load**: Verify client build completed successfully
+4. **Cloud Run timeout**: Increase timeout in `cloudbuild.yaml`
+
+### Development Tips
+
+- Use browser dev tools to debug client-side issues
+- Check server logs with `gcloud run logs tail tank-duel`
+- Monitor Cloud Run metrics in Google Cloud Console
+
+## 📝 API Reference
+
+### Socket.IO Events
+
+#### Client → Server
+- `join_game(playerName)`: Join a game room
+- `player_action(action)`: Send player input
+
+#### Server → Client
+- `joined_room(data)`: Confirmation of joining room
+- `game_started(data)`: Game has begun
+- `game_state(data)`: Updated game state
+- `turn_changed(data)`: Turn has switched
+- `game_ended(data)`: Game finished
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test locally
+5. Submit a pull request
+
+## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## Credits
-
-- Game Design & Programming: Tank Duel Development Team
-- Graphics: Custom pixel art sprites and icons
-- Built with SDL2 cross-platform library
-
 ---
 
-**Enjoy the battle!** 🎮💥🚀
+**Ready to battle!** 🚀🎯
