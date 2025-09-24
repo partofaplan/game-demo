@@ -1,8 +1,19 @@
 import { GAME_CONSTANTS as C, ProjectileKind } from '@shared/types'
+import { SpriteExtractor } from './SpriteExtractor'
+
+interface TankSprites {
+  hull: HTMLCanvasElement
+  turret: HTMLCanvasElement
+}
 
 export class GameRenderer {
   private canvas: HTMLCanvasElement
   private ctx: CanvasRenderingContext2D
+  private sprites: {
+    red: TankSprites | null
+    green: TankSprites | null
+  } = { red: null, green: null }
+  private spritesLoaded = false
 
   constructor(canvasId: string) {
     this.canvas = document.getElementById(canvasId) as HTMLCanvasElement
@@ -10,6 +21,34 @@ export class GameRenderer {
 
     // Set up pixel art rendering
     this.ctx.imageSmoothingEnabled = false
+
+    // Load sprites
+    this.loadSprites()
+  }
+
+  private async loadSprites(): Promise<void> {
+    try {
+      const extractor = new SpriteExtractor()
+      await extractor.loadSourceImage('./src/client/assets/tanks.png')
+
+      const tankSprites = await extractor.extractTankSprites()
+
+      this.sprites.red = {
+        hull: tankSprites.redHull.canvas,
+        turret: tankSprites.redTurret.canvas
+      }
+
+      this.sprites.green = {
+        hull: tankSprites.greenHull.canvas,
+        turret: tankSprites.greenTurret.canvas
+      }
+
+      this.spritesLoaded = true
+      console.log('Tank sprites loaded successfully')
+    } catch (error) {
+      console.warn('Failed to load tank sprites, falling back to geometric shapes:', error)
+      this.spritesLoaded = false
+    }
   }
 
   render(gameState: any): void {
@@ -61,39 +100,94 @@ export class GameRenderer {
   private drawTanks(tanks: any): void {
     if (!tanks) return
 
-    Object.values(tanks).forEach((tank: any) => {
+    Object.values(tanks).forEach((tank: any, index: number) => {
       if (!tank.isAlive) return
 
       this.ctx.save()
       this.ctx.translate(tank.position.x, tank.position.y)
 
-      // Draw tank hull
-      this.ctx.fillStyle = tank.shieldActive ? '#00FFFF' : '#4A4A4A'
-      this.ctx.fillRect(-C.TANK_COLLISION_WIDTH / 2, 0, C.TANK_COLLISION_WIDTH, C.TANK_COLLISION_HEIGHT)
-
-      // Draw turret
-      this.ctx.save()
-      this.ctx.translate(0, -4)
-      this.ctx.rotate(tank.turretAngle * C.DEG2RAD)
-
-      this.ctx.fillStyle = tank.shieldActive ? '#00DDDD' : '#2A2A2A'
-      this.ctx.fillRect(0, -2, 30, 4)
-
-      this.ctx.restore()
+      if (this.spritesLoaded) {
+        this.drawTankWithSprites(tank, index)
+      } else {
+        this.drawTankWithShapes(tank)
+      }
 
       // Draw HP bar
-      const barWidth = C.TANK_COLLISION_WIDTH
-      const barHeight = 4
-      const hpPercent = tank.hp / tank.maxHp
-
-      this.ctx.fillStyle = '#FF0000'
-      this.ctx.fillRect(-barWidth / 2, -16, barWidth, barHeight)
-
-      this.ctx.fillStyle = '#00FF00'
-      this.ctx.fillRect(-barWidth / 2, -16, barWidth * hpPercent, barHeight)
+      this.drawHealthBar(tank)
 
       this.ctx.restore()
     })
+  }
+
+  private drawTankWithSprites(tank: any, tankIndex: number): void {
+    // Use tank team if available, otherwise fall back to alternating colors
+    const teamColor = tank.team || (tankIndex % 2 === 0 ? 'red' : 'green')
+    const tankSprites = this.sprites[teamColor]
+
+    if (!tankSprites) return
+
+    // Apply shield effect if active
+    if (tank.shieldActive) {
+      this.ctx.shadowColor = '#00FFFF'
+      this.ctx.shadowBlur = 8
+    }
+
+    // Draw hull sprite
+    this.ctx.drawImage(
+      tankSprites.hull,
+      -tankSprites.hull.width / 2,
+      -tankSprites.hull.height + 5, // Adjust positioning
+      tankSprites.hull.width,
+      tankSprites.hull.height
+    )
+
+    // Draw turret sprite with rotation
+    this.ctx.save()
+    this.ctx.translate(0, -tankSprites.hull.height / 2)
+    this.ctx.rotate(tank.turretAngle * C.DEG2RAD)
+
+    this.ctx.drawImage(
+      tankSprites.turret,
+      0, // Turret origin at rotation point
+      -tankSprites.turret.height / 2,
+      tankSprites.turret.width,
+      tankSprites.turret.height
+    )
+
+    this.ctx.restore()
+
+    // Reset shadow
+    if (tank.shieldActive) {
+      this.ctx.shadowBlur = 0
+    }
+  }
+
+  private drawTankWithShapes(tank: any): void {
+    // Fallback to original rectangle rendering
+    this.ctx.fillStyle = tank.shieldActive ? '#00FFFF' : '#4A4A4A'
+    this.ctx.fillRect(-C.TANK_COLLISION_WIDTH / 2, 0, C.TANK_COLLISION_WIDTH, C.TANK_COLLISION_HEIGHT)
+
+    // Draw turret
+    this.ctx.save()
+    this.ctx.translate(0, -4)
+    this.ctx.rotate(tank.turretAngle * C.DEG2RAD)
+
+    this.ctx.fillStyle = tank.shieldActive ? '#00DDDD' : '#2A2A2A'
+    this.ctx.fillRect(0, -2, 30, 4)
+
+    this.ctx.restore()
+  }
+
+  private drawHealthBar(tank: any): void {
+    const barWidth = C.TANK_COLLISION_WIDTH
+    const barHeight = 4
+    const hpPercent = tank.hp / tank.maxHp
+
+    this.ctx.fillStyle = '#FF0000'
+    this.ctx.fillRect(-barWidth / 2, -16, barWidth, barHeight)
+
+    this.ctx.fillStyle = '#00FF00'
+    this.ctx.fillRect(-barWidth / 2, -16, barWidth * hpPercent, barHeight)
   }
 
   private drawProjectiles(projectiles: any[]): void {

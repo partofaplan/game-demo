@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tank Duel</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #222;
+            color: white;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        #gameContainer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #gameCanvas {
+            border: 2px solid #555;
+            background: #87CEEB;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+        }
+
+        #ui {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .ui-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        button {
+            background: #444;
+            color: white;
+            border: 1px solid #666;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        button:hover {
+            background: #555;
+        }
+
+        button:disabled {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        input {
+            background: #333;
+            color: white;
+            border: 1px solid #666;
+            padding: 8px;
+            font-family: inherit;
+        }
+
+        #joinForm {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: center;
+            padding: 20px;
+            background: #333;
+            border-radius: 8px;
+        }
+
+        #gameInfo {
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        .health-bar {
+            width: 100px;
+            height: 10px;
+            background: #333;
+            border: 1px solid #666;
+            position: relative;
+        }
+
+        .health-fill {
+            height: 100%;
+            background: #4CAF50;
+            transition: width 0.3s;
+        }
+
+        .health-fill.critical {
+            background: #f44336;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        #status {
+            text-align: center;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+
+        .key-hint {
+            font-size: 12px;
+            color: #aaa;
+        }
+    </style>
+  <script type="module" crossorigin src="/assets/index-B3HHsUEU.js"></script>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="joinForm">
+            <h2>Tank Duel</h2>
+            <input type="text" id="playerName" placeholder="Enter your name" maxlength="12">
+            <button id="joinGame">Join Game</button>
+            <div class="key-hint">
+                Controls: Q/A (aim), W/S (power), SPACE (fire), E (ammo), R (shield)
+            </div>
+        </div>
+
+        <div id="gameArea" class="hidden">
+            <div id="gameInfo">
+                <div id="status">Waiting for players...</div>
+                <div id="roomId"></div>
+            </div>
+
+            <canvas id="gameCanvas" width="1280" height="768"></canvas>
+
+            <div id="ui">
+                <div class="ui-section">
+                    <div>Player 1</div>
+                    <div class="health-bar">
+                        <div class="health-fill" id="player1Health"></div>
+                    </div>
+                    <div id="player1Name">Player 1</div>
+                </div>
+
+                <div class="ui-section">
+                    <div id="currentTurn">Your Turn</div>
+                    <div id="turnTimer">30s</div>
+                    <div id="currentAmmo">Mortar</div>
+                    <div id="currentPower">Power: 160</div>
+                    <div id="currentAngle">Angle: 0°</div>
+                </div>
+
+                <div class="ui-section">
+                    <div>Player 2</div>
+                    <div class="health-bar">
+                        <div class="health-fill" id="player2Health"></div>
+                    </div>
+                    <div id="player2Name">Player 2</div>
+                </div>
+            </div>
+
+            <div class="controls">
+                <button id="changeAmmo">Change Ammo (E)</button>
+                <button id="useShield">Shield (R)</button>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

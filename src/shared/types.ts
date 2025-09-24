@@ -20,6 +20,7 @@ export interface Tank {
   isAlive: boolean
   shieldActive: boolean
   shieldCooldown: number
+  team: 'red' | 'green'
 }
 
 export enum ProjectileKind {
