@@ -1,10 +1,9 @@
 import { GAME_CONSTANTS as C, ProjectileKind } from '@shared/types'
-import { SpriteExtractor } from './SpriteExtractor'
-import tanksSprite from './assets/tanks.png'
+import greenTankSprite from './assets/green_tank.png'
+import redTankSprite from './assets/red_tank.png'
 
 interface TankSprites {
-  hull: HTMLCanvasElement
-  turret: HTMLCanvasElement
+  image: HTMLImageElement
 }
 
 export class GameRenderer {
@@ -29,20 +28,13 @@ export class GameRenderer {
 
   private async loadSprites(): Promise<void> {
     try {
-      const extractor = new SpriteExtractor()
-      await extractor.loadSourceImage(tanksSprite)
+      const [greenImg, redImg] = await Promise.all([
+        this.loadImage(greenTankSprite),
+        this.loadImage(redTankSprite)
+      ])
 
-      const tankSprites = await extractor.extractTankSprites()
-
-      this.sprites.red = {
-        hull: tankSprites.redHull.canvas,
-        turret: tankSprites.redTurret.canvas
-      }
-
-      this.sprites.green = {
-        hull: tankSprites.greenHull.canvas,
-        turret: tankSprites.greenTurret.canvas
-      }
+      this.sprites.green = { image: greenImg }
+      this.sprites.red = { image: redImg }
 
       this.spritesLoaded = true
       console.log('Tank sprites loaded successfully')
@@ -50,6 +42,15 @@ export class GameRenderer {
       console.warn('Failed to load tank sprites, falling back to geometric shapes:', error)
       this.spritesLoaded = false
     }
+  }
+
+  private loadImage(src: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve(img)
+      img.onerror = reject
+      img.src = src
+    })
   }
 
   render(gameState: any): void {
@@ -101,14 +102,14 @@ export class GameRenderer {
   private drawTanks(tanks: any): void {
     if (!tanks) return
 
-    Object.values(tanks).forEach((tank: any, index: number) => {
+    Object.values(tanks).forEach((tank: any) => {
       if (!tank.isAlive) return
 
       this.ctx.save()
       this.ctx.translate(tank.position.x, tank.position.y)
 
       if (this.spritesLoaded) {
-        this.drawTankWithSprites(tank, index)
+        this.drawTankWithSprites(tank)
       } else {
         this.drawTankWithShapes(tank)
       }
@@ -120,10 +121,11 @@ export class GameRenderer {
     })
   }
 
-  private drawTankWithSprites(tank: any, tankIndex: number): void {
-    // Use tank team if available, otherwise fall back to alternating colors
-    const teamColor = tank.team || (tankIndex % 2 === 0 ? 'red' : 'green')
-    const tankSprites = this.sprites[teamColor]
+  private drawTankWithSprites(tank: any): void {
+    // Determine sprite based on tank position: left tank gets green, right tank gets red
+    const isLeftTank = tank.position.x < C.LOGICAL_WIDTH / 2
+    const spriteColor = isLeftTank ? 'green' : 'red'
+    const tankSprites = this.sprites[spriteColor]
 
     if (!tankSprites) return
 
@@ -133,29 +135,17 @@ export class GameRenderer {
       this.ctx.shadowBlur = 8
     }
 
-    // Draw hull sprite
-    this.ctx.drawImage(
-      tankSprites.hull,
-      -tankSprites.hull.width / 2,
-      -tankSprites.hull.height + 5, // Adjust positioning
-      tankSprites.hull.width,
-      tankSprites.hull.height
-    )
-
-    // Draw turret sprite with rotation
-    this.ctx.save()
-    this.ctx.translate(0, -tankSprites.hull.height / 2)
-    this.ctx.rotate(tank.turretAngle * C.DEG2RAD)
+    // Draw tank sprite
+    const spriteWidth = 60 // Adjust size as needed
+    const spriteHeight = 40 // Adjust size as needed
 
     this.ctx.drawImage(
-      tankSprites.turret,
-      0, // Turret origin at rotation point
-      -tankSprites.turret.height / 2,
-      tankSprites.turret.width,
-      tankSprites.turret.height
+      tankSprites.image,
+      -spriteWidth / 2,
+      -spriteHeight + 5, // Adjust positioning to sit on ground
+      spriteWidth,
+      spriteHeight
     )
-
-    this.ctx.restore()
 
     // Reset shadow
     if (tank.shieldActive) {
