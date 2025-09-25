@@ -57,10 +57,10 @@ RM = /usr/local/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /Users/zachperkins/repos/game-demo
+CMAKE_SOURCE_DIR = /Users/zachperkins/repos/tank-duel
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /Users/zachperkins/repos/game-demo/build
+CMAKE_BINARY_DIR = /Users/zachperkins/repos/tank-duel/build
 
 #=============================================================================
 # Targets provided globally by CMake.
@@ -78,7 +78,7 @@ package/fast: package
 # Special rule for the target package_source
 package_source:
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Run CPack packaging tool for source..."
-	/usr/local/bin/cpack --config ./CPackSourceConfig.cmake /Users/zachperkins/repos/game-demo/build/CPackSourceConfig.cmake
+	/usr/local/bin/cpack --config ./CPackSourceConfig.cmake /Users/zachperkins/repos/tank-duel/build/CPackSourceConfig.cmake
 .PHONY : package_source
 
 # Special rule for the target package_source
@@ -152,9 +152,9 @@ install/strip/fast: preinstall/fast
 
 # The main all target
 all: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/zachperkins/repos/game-demo/build/CMakeFiles /Users/zachperkins/repos/game-demo/build//CMakeFiles/progress.marks
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/zachperkins/repos/tank-duel/build/CMakeFiles /Users/zachperkins/repos/tank-duel/build//CMakeFiles/progress.marks
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 all
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/zachperkins/repos/game-demo/build/CMakeFiles 0
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/zachperkins/repos/tank-duel/build/CMakeFiles 0
 .PHONY : all
 
 # The main clean target

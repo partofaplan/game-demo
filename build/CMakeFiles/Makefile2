@@ -54,10 +54,10 @@ RM = /usr/local/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /Users/zachperkins/repos/game-demo
+CMAKE_SOURCE_DIR = /Users/zachperkins/repos/tank-duel
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /Users/zachperkins/repos/game-demo/build
+CMAKE_BINARY_DIR = /Users/zachperkins/repos/tank-duel/build
 
 #=============================================================================
 # Directory level rules for the build root directory
@@ -85,14 +85,14 @@ clean: CMakeFiles/tank_duel.dir/clean
 CMakeFiles/tank_duel.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/tank_duel.dir/build.make CMakeFiles/tank_duel.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/tank_duel.dir/build.make CMakeFiles/tank_duel.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/zachperkins/repos/game-demo/build/CMakeFiles --progress-num=1,2 "Built target tank_duel"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/zachperkins/repos/tank-duel/build/CMakeFiles --progress-num=1,2 "Built target tank_duel"
 .PHONY : CMakeFiles/tank_duel.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/tank_duel.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/zachperkins/repos/game-demo/build/CMakeFiles 2
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/zachperkins/repos/tank-duel/build/CMakeFiles 2
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/tank_duel.dir/all
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/zachperkins/repos/game-demo/build/CMakeFiles 0
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/zachperkins/repos/tank-duel/build/CMakeFiles 0
 .PHONY : CMakeFiles/tank_duel.dir/rule
 
 # Convenience name for target.
@@ -102,7 +102,7 @@ tank_duel: CMakeFiles/tank_duel.dir/rule
 # codegen rule for target.
 CMakeFiles/tank_duel.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/tank_duel.dir/build.make CMakeFiles/tank_duel.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/zachperkins/repos/game-demo/build/CMakeFiles --progress-num=1,2 "Finished codegen for target tank_duel"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/zachperkins/repos/tank-duel/build/CMakeFiles --progress-num=1,2 "Finished codegen for target tank_duel"
 .PHONY : CMakeFiles/tank_duel.dir/codegen
 
 # clean rule for target.

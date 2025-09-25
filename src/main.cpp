@@ -23,6 +23,7 @@ constexpr int DAMAGE_MORTAR            = 24;
 constexpr int DAMAGE_CLUSTER           = 16;
 constexpr int DAMAGE_CLUSTER_SHARD     = 12;
 constexpr int DAMAGE_NAPALM_DIRECT     = 18;
+constexpr int DAMAGE_GRENADE           = 20;
 constexpr int DAMAGE_DIRTGUN           = 0;
 constexpr int TANK_HP = 100;
 constexpr float RELOAD_TIME = 0.45f;
@@ -60,6 +61,7 @@ constexpr float RADIUS_MORTAR = 3.2f;
 constexpr float RADIUS_CLUSTER = 3.0f;
 constexpr float RADIUS_CLUSTER_SHARD = 2.2f;
 constexpr float RADIUS_NAPALM = 3.8f;
+constexpr float RADIUS_GRENADE = 2.8f;
 constexpr float RADIUS_DIRTGUN = 2.5f;
 
 constexpr float CLUSTER_SPLIT_TIME = 0.45f;
@@ -74,7 +76,7 @@ constexpr int GLYPH_WIDTH = 6;
 constexpr int GLYPH_HEIGHT = 7;
 constexpr int DEFAULT_GLYPH_PIXEL = 3;
 
-enum class ProjectileKind { Mortar, Cluster, ClusterShard, Napalm, Dirtgun };
+enum class ProjectileKind { Mortar, Cluster, ClusterShard, Napalm, Grenade, Dirtgun };
 
 enum class SceneryKind { Tower };
 
@@ -100,7 +102,8 @@ ProjectileKind nextAmmoType(ProjectileKind current) {
     switch (current) {
         case ProjectileKind::Mortar: return ProjectileKind::Cluster;
         case ProjectileKind::Cluster: return ProjectileKind::Napalm;
-        case ProjectileKind::Napalm: return ProjectileKind::Dirtgun;
+        case ProjectileKind::Napalm: return ProjectileKind::Grenade;
+        case ProjectileKind::Grenade: return ProjectileKind::Dirtgun;
         case ProjectileKind::Dirtgun: return ProjectileKind::Mortar;
         case ProjectileKind::ClusterShard: return ProjectileKind::Mortar;
     }
@@ -112,6 +115,7 @@ const char* ammoDisplayName(ProjectileKind kind) {
         case ProjectileKind::Mortar: return "Mortar";
         case ProjectileKind::Cluster: return "Cluster";
         case ProjectileKind::Napalm: return "Napalm";
+        case ProjectileKind::Grenade: return "Grenade";
         case ProjectileKind::Dirtgun: return "Dirtgun";
         case ProjectileKind::ClusterShard: return "Cluster";
     }
@@ -250,6 +254,7 @@ struct Projectile {
     bool alive{true};
     float age{0.0f};
     bool spawnedChildren{false};
+    int bouncesRemaining{0};
 };
 
 struct Explosion {
@@ -444,12 +449,18 @@ Projectile spawnProjectile(const Tank& tank) {
         case ProjectileKind::Cluster:
             proj.damage = DAMAGE_CLUSTER;
             proj.radius = RADIUS_CLUSTER;
-            speed *= 0.95f;
+            speed *= 1.05f;
             break;
         case ProjectileKind::Napalm:
             proj.damage = DAMAGE_NAPALM_DIRECT;
             proj.radius = RADIUS_NAPALM;
-            speed *= 1.3f;
+            speed *= 1.1f;
+            break;
+        case ProjectileKind::Grenade:
+            proj.damage = DAMAGE_GRENADE;
+            proj.radius = RADIUS_GRENADE;
+            proj.bouncesRemaining = 3;
+            speed *= 1.0f;
             break;
         case ProjectileKind::ClusterShard:
             proj.damage = DAMAGE_CLUSTER_SHARD;
@@ -879,10 +890,49 @@ void updateProjectiles(GameState& state, float dt) {
         proj.position.x += proj.velocity.x * dt;
         proj.position.y += proj.velocity.y * dt;
 
-        if (proj.position.x + proj.radius < 0.0f || proj.position.x - proj.radius > LOGICAL_WIDTH ||
-            proj.position.y - proj.radius > LOGICAL_HEIGHT) {
+        // Handle screen boundary collisions
+        bool hitBoundary = false;
+        if (proj.position.x - proj.radius <= 0.0f) {
+            if (proj.kind == ProjectileKind::Grenade && proj.bouncesRemaining > 0) {
+                proj.position.x = proj.radius + 1.0f;
+                proj.velocity.x = -proj.velocity.x * 0.6f;
+                proj.bouncesRemaining--;
+                hitBoundary = true;
+            } else {
+                proj.alive = false;
+                continue;
+            }
+        }
+        if (proj.position.x + proj.radius >= LOGICAL_WIDTH) {
+            if (proj.kind == ProjectileKind::Grenade && proj.bouncesRemaining > 0) {
+                proj.position.x = LOGICAL_WIDTH - proj.radius - 1.0f;
+                proj.velocity.x = -proj.velocity.x * 0.6f;
+                proj.bouncesRemaining--;
+                hitBoundary = true;
+            } else {
+                proj.alive = false;
+                continue;
+            }
+        }
+        if (proj.position.y - proj.radius > LOGICAL_HEIGHT) {
             proj.alive = false;
             continue;
+        }
+        // Handle top boundary bounce
+        if (proj.position.y + proj.radius <= 0.0f) {
+            if (proj.kind == ProjectileKind::Grenade && proj.bouncesRemaining > 0) {
+                proj.position.y = -proj.radius + 1.0f;
+                proj.velocity.y = -proj.velocity.y * 0.6f;
+                proj.bouncesRemaining--;
+                hitBoundary = true;
+            } else {
+                proj.alive = false;
+                continue;
+            }
+        }
+
+        if (hitBoundary) {
+            continue; // Skip terrain collision check this frame
         }
 
         float terrainY = terrainHeightAt(state.terrainHeights, proj.position.x);
@@ -909,8 +959,21 @@ void updateProjectiles(GameState& state, float dt) {
                     state.napalmPatches.push_back(patch);
                     break;
                 }
+                case ProjectileKind::Grenade:
+                    if (proj.bouncesRemaining > 0) {
+                        // Bounce off terrain
+                        proj.bouncesRemaining--;
+                        proj.position.y = terrainY - proj.radius - 1.0f; // Move above ground
+                        proj.velocity.y = -proj.velocity.y * 0.6f; // Bounce with energy loss
+                        proj.velocity.x *= 0.8f; // Reduce horizontal velocity
+                        continue; // Don't explode, keep bouncing
+                    } else {
+                        // No bounces left, explode
+                        erodeTerrainLayers(state, proj.position.x, 16.0f, 8.0f);
+                    }
+                    break;
                 case ProjectileKind::Dirtgun:
-                    addTerrainMound(state, proj.position.x, 16.0f, 8.0f);
+                    addTerrainMound(state, proj.position.x, 50.0f, 20.0f);
                     break;
             }
             state.explosions.push_back({proj.position, EXPLOSION_DURATION, EXPLOSION_DURATION, 24.0f, proj.kind == ProjectileKind::Napalm});
@@ -983,8 +1046,11 @@ void updateProjectiles(GameState& state, float dt) {
                             state.napalmPatches.push_back(patch);
                             break;
                         }
+                        case ProjectileKind::Grenade:
+                            erodeTerrainLayers(state, proj.position.x, 18.0f, 9.0f);
+                            break;
                         case ProjectileKind::Dirtgun:
-                            addTerrainMound(state, proj.position.x, 16.0f, 8.0f);
+                            addTerrainMound(state, proj.position.x, 50.0f, 20.0f);
                             break;
                     }
                     proj.alive = false;
@@ -1512,6 +1578,11 @@ void drawProjectiles(SDL_Renderer* renderer, const std::vector<Projectile>& proj
                 glow = SDL_Color{ 255, 152, 64, 210 };
                 core = SDL_Color{ 255, 228, 136, 255 };
                 glowExtra = 2.4f;
+                break;
+            case ProjectileKind::Grenade:
+                glow = SDL_Color{ 80, 180, 80, 180 };
+                core = SDL_Color{ 120, 220, 120, 255 };
+                glowExtra = 1.8f;
                 break;
             case ProjectileKind::Dirtgun:
                 glow = SDL_Color{ 139, 101, 70, 160 };
@@ -2195,6 +2266,103 @@ float calculateOptimalPower(const Tank& botTank, const Tank& targetTank) {
     return std::clamp(basePower, MIN_LAUNCH_SPEED, MAX_LAUNCH_SPEED);
 }
 
+bool isTrajectoryBlocked(const GameState& state, const Tank& shooter, const Tank& target, float angle, float power) {
+    float shooterX = shooter.rect.x + shooter.rect.w * 0.5f;
+    float shooterY = shooter.rect.y + shooter.rect.h * 0.5f;
+    float targetX = target.rect.x + target.rect.w * 0.5f;
+    float targetY = target.rect.y + target.rect.h * 0.5f;
+
+    // Calculate trajectory using physics simulation
+    float angleRad = angle * (M_PI / 180.0f);
+    float vx = std::cos(angleRad) * power;
+    float vy = std::sin(angleRad) * power;
+
+    // Adjust direction based on tank facing
+    if (!shooter.facingRight) {
+        vx = -vx;
+    }
+
+    float x = shooterX;
+    float y = shooterY;
+    const float dt = 0.016f; // 60 FPS simulation steps
+    const float gravity = GRAVITY;
+    const float projectileRadius = 3.0f; // Average projectile size
+
+    // Simulate trajectory for reasonable time/distance
+    for (int steps = 0; steps < 600; steps++) {
+        // Update position
+        x += vx * dt;
+        y += vy * dt;
+        vy += gravity * dt;
+
+        // Check if we've gone past the target horizontally
+        float distToTarget = std::abs(x - targetX);
+        if (distToTarget < 8.0f) {
+            // Close to target, trajectory is clear
+            return false;
+        }
+
+        // Check if projectile has gone too far or too high/low
+        if (x < -50.0f || x > LOGICAL_WIDTH + 50.0f || y > LOGICAL_HEIGHT + 50.0f) {
+            break;
+        }
+
+        // Check terrain collision
+        if (y + projectileRadius >= terrainHeightAt(state.terrainHeights, x)) {
+            // Check if this collision is near the target (acceptable)
+            if (distToTarget < 15.0f) {
+                return false; // Close enough to target
+            }
+            return true; // Blocked by terrain
+        }
+
+        // Check scenery collision (towers)
+        for (const auto& scenery : state.scenery) {
+            if (!scenery.alive) continue;
+
+            if (x >= scenery.rect.x - projectileRadius &&
+                x <= scenery.rect.x + scenery.rect.w + projectileRadius &&
+                y >= scenery.rect.y - projectileRadius &&
+                y <= scenery.rect.y + scenery.rect.h + projectileRadius) {
+
+                // Check if collision is near target
+                if (distToTarget < 15.0f) {
+                    return false; // Close enough to target
+                }
+                return true; // Blocked by scenery
+            }
+        }
+    }
+
+    return false; // Path appears clear
+}
+
+float findClearTrajectoryAngle(const GameState& state, const Tank& shooter, const Tank& target, float optimalAngle, float power) {
+    // First check if optimal angle is clear
+    if (!isTrajectoryBlocked(state, shooter, target, optimalAngle, power)) {
+        return optimalAngle;
+    }
+
+    // Try higher angles first (arc over obstacles)
+    for (float angleOffset = 5.0f; angleOffset <= 35.0f; angleOffset += 5.0f) {
+        float highAngle = std::clamp(optimalAngle + angleOffset, 5.0f, MAX_TURRET_SWING - 5.0f);
+        if (!isTrajectoryBlocked(state, shooter, target, highAngle, power)) {
+            return highAngle;
+        }
+    }
+
+    // Try lower angles (more direct shots)
+    for (float angleOffset = 5.0f; angleOffset <= 25.0f; angleOffset += 5.0f) {
+        float lowAngle = std::clamp(optimalAngle - angleOffset, 5.0f, MAX_TURRET_SWING - 5.0f);
+        if (!isTrajectoryBlocked(state, shooter, target, lowAngle, power)) {
+            return lowAngle;
+        }
+    }
+
+    // If no clear path found, return optimal angle anyway (bot will miss but try)
+    return optimalAngle;
+}
+
 ProjectileKind chooseBotAmmo(const GameState& state) {
     // Simple ammo selection logic
     float healthRatio = static_cast<float>(state.player1.hp) / static_cast<float>(TANK_HP);
@@ -2205,12 +2373,16 @@ ProjectileKind chooseBotAmmo(const GameState& state) {
     } else if (healthRatio > 0.3f) {
         // Mid game - mix of weapons
         float choice = randomFloat(0.0f, 1.0f);
-        if (choice > 0.7f) return ProjectileKind::Napalm;
-        else if (choice > 0.4f) return ProjectileKind::Cluster;
+        if (choice > 0.8f) return ProjectileKind::Napalm;
+        else if (choice > 0.6f) return ProjectileKind::Grenade;
+        else if (choice > 0.3f) return ProjectileKind::Cluster;
         else return ProjectileKind::Mortar;
     } else {
         // Late game - aggressive weapons
-        return randomFloat(0.0f, 1.0f) > 0.5f ? ProjectileKind::Napalm : ProjectileKind::Cluster;
+        float choice = randomFloat(0.0f, 1.0f);
+        if (choice > 0.7f) return ProjectileKind::Napalm;
+        else if (choice > 0.4f) return ProjectileKind::Grenade;
+        else return ProjectileKind::Cluster;
     }
 }
 
@@ -2230,24 +2402,27 @@ void updateBotAI(GameState& state, float dt) {
         state.botTargetPower = calculateOptimalPower(bot, target);
         state.botTargetAngle = calculateOptimalAngle(bot, target, state.botTargetPower);
 
+        // Check for obstacles and adjust angle if needed
+        state.botTargetAngle = findClearTrajectoryAngle(state, bot, target, state.botTargetAngle, state.botTargetPower);
+
         // Add inaccuracy based on difficulty to achieve target hit rates
         float angleError = 0.0f;
         float powerError = 0.0f;
         switch (state.difficulty) {
             case Difficulty::Easy:
-                // Target: 45% hit rate - moderate errors
-                angleError = randomFloat(-4.0f, 4.0f);
-                powerError = randomFloat(-15.0f, 15.0f);
+                // Target: ~25% hit rate - large errors (about half as good)
+                angleError = randomFloat(-8.0f, 8.0f);
+                powerError = randomFloat(-25.0f, 25.0f);
                 break;
             case Difficulty::Medium:
-                // Target: 60% hit rate - smaller errors
-                angleError = randomFloat(-2.0f, 2.0f);
-                powerError = randomFloat(-8.0f, 8.0f);
+                // Target: ~65% hit rate - moderate errors
+                angleError = randomFloat(-1.5f, 1.5f);
+                powerError = randomFloat(-6.0f, 6.0f);
                 break;
             case Difficulty::Hard:
-                // Target: 90%+ hit rate - minimal errors
-                angleError = randomFloat(-0.3f, 0.3f);
-                powerError = randomFloat(-2.0f, 2.0f);
+                // Target: 99%+ hit rate - nearly perfect aim
+                angleError = randomFloat(-0.03f, 0.03f);
+                powerError = randomFloat(-0.2f, 0.2f);
                 break;
         }
 
@@ -2335,6 +2510,12 @@ void updateBotAI(GameState& state, float dt) {
         state.shotFired = true;
         state.waitingForTurnEnd = true;
         state.turnEndTimer = 3.0f;
+
+        // Increment bot shot count and make force field available every 5 shots (same as human player)
+        bot.shotsFired++;
+        if (bot.shotsFired % 5 == 0) {
+            bot.forceFieldAvailable = true;
+        }
 
         // Reset bot state for next turn
         state.botReadyToFire = false;
